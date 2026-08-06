@@ -27,10 +27,34 @@ func FuzzFieldJSON(f *testing.F) {
 			if !field.IsSet() || field.IsNull() {
 				t.Errorf("Set(%q) state = set:%t null:%t, want set:true null:false", value, field.IsSet(), field.IsNull())
 			}
+			encoded, err := json.Marshal(struct {
+				Value Field[string] `json:"value,omitzero"`
+			}{Value: field})
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			want, err := json.Marshal(struct {
+				Value string `json:"value"`
+			}{Value: value})
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			if string(encoded) != string(want) {
+				t.Errorf("json.Marshal() = %s, want %s", encoded, want)
+			}
 		case 2:
 			field := Null[string]()
 			if !field.IsSet() || !field.IsNull() {
 				t.Errorf("Null() state = set:%t null:%t, want set:true null:true", field.IsSet(), field.IsNull())
+			}
+			encoded, err := json.Marshal(struct {
+				Value Field[string] `json:"value,omitzero"`
+			}{Value: field})
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			if string(encoded) != `{"value":null}` {
+				t.Errorf("json.Marshal() = %s, want {\"value\":null}", encoded)
 			}
 		}
 	})
