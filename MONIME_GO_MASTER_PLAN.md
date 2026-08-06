@@ -1575,15 +1575,15 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Files:** `go.mod`, `.gitignore`, `LICENSE`, `README.md`, `Makefile`, `.golangci.yml`, `.github/workflows/ci.yml`, `doc.go`.
 
-- [ ] Rename or initialize repository as `monime-go`.
-- [ ] Initialize Git if this directory remains the repository root.
-- [ ] Initialize module `github.com/spikenardco/monime-go` with `go 1.24`.
-- [ ] Confirm Apache-2.0 licensing choice and preserve required notices.
+- [x] Rename or initialize repository as `monime-go`.
+- [x] Initialize Git if this directory remains the repository root.
+- [x] Initialize module `github.com/spikenardco/monime-go` with `go 1.24`.
+- [x] Confirm Apache-2.0 licensing choice and preserve required notices.
 - [ ] Pin lint and vulnerability tools through Go 1.24 tool directives.
-- [ ] Add package comment and intentionally nonfunctional README status banner.
-- [ ] Add CI matrix for Go 1.24 and latest stable.
-- [ ] Add formatting, vet, lint, test, race, tidy, verify, and vulnerability targets.
-- [ ] Verify `go test ./...`, `go vet ./...`, and CI syntax.
+- [x] Add package comment and intentionally nonfunctional README status banner.
+- [x] Add CI matrix for Go 1.24 and latest stable.
+- [x] Add formatting, vet, lint, test, race, tidy, verify, and vulnerability targets.
+- [ ] Verify `go test ./...`, `go vet ./...`, and CI syntax. `go test` and `go vet` passed; CI syntax awaits GitHub Actions because no external YAML validator is installed.
 
 **Suggested commit:** `chore: initialize monime Go module`
 
