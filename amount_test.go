@@ -58,6 +58,22 @@ func TestValidateAmount(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "unsupported currency",
+			amount: Amount{
+				Currency: "XYZ",
+				Value:    100,
+			},
+			wantErr: true,
+		},
+		{
+			name: "currency with trailing space",
+			amount: Amount{
+				Currency: "SLE ",
+				Value:    100,
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {

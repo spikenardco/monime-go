@@ -30,6 +30,12 @@ func validateAmount(amount Amount, allowNegative bool) error {
 		return errors.New("monime: amount currency must be valid UTF-8")
 	}
 
+	switch amount.Currency {
+	case CurrencySLE, CurrencyUSD:
+	default:
+		return errors.New("monime: amount currency is not supported by the API version")
+	}
+
 	if !allowNegative && amount.Value < 0 {
 		return errors.New("monime: amount value must not be negative")
 	}
