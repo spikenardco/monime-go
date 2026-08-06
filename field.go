@@ -67,9 +67,18 @@ func isNil[T any](value T) bool {
 		return true
 	}
 
+	visited := map[uintptr]struct{}{}
 	for reflected.Kind() == reflect.Interface || reflected.Kind() == reflect.Pointer {
 		if reflected.IsNil() {
 			return true
+		}
+
+		if reflected.Kind() == reflect.Pointer {
+			pointer := reflected.Pointer()
+			if _, ok := visited[pointer]; ok {
+				return false
+			}
+			visited[pointer] = struct{}{}
 		}
 
 		reflected = reflected.Elem()

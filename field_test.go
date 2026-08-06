@@ -3,6 +3,7 @@ package monime
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestField_JSON(t *testing.T) {
@@ -138,6 +139,27 @@ func TestSet_NilNormalizesToNull(t *testing.T) {
 				t.Errorf("json.Marshal() = %s, want {\"value\":null}", encoded)
 			}
 		})
+	}
+}
+
+func TestSet_CyclicPointerIsNotNull(t *testing.T) {
+	t.Parallel()
+
+	var value any
+	value = &value
+
+	result := make(chan Field[any], 1)
+	go func() {
+		result <- Set(value)
+	}()
+
+	select {
+	case field := <-result:
+		if field.IsNull() {
+			t.Error("Set(cyclic pointer).IsNull() = true, want false")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Set(cyclic pointer) did not return")
 	}
 }
 
