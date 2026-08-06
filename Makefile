@@ -1,6 +1,6 @@
 .PHONY: check fmt-check vet lint test race tidy verify vuln
 
-check: fmt-check vet lint test race tidy verify
+check: fmt-check vet lint test race tidy verify vuln
 
 fmt-check:
 	test -z "$(shell gofmt -l .)"
