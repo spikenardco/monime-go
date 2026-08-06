@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Go ${{ matrix.go-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ["1.24.x", stable]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+      - run: make check
+      # TODO: Add pinned external lint and vulnerability-scan steps after approval.
