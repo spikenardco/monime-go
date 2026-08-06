@@ -1593,17 +1593,17 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Files:** `amount.go`, `metadata.go`, `field.go`, `version.go`, `validation.go` and matching tests.
 
-- [ ] Write failing table tests for `Amount` validation.
-- [ ] Implement `Currency`, known constants, and `Amount`.
+- [x] Write failing table tests for `Amount` validation.
+- [x] Implement `Currency`, known constants, and `Amount`.
 - [ ] Write metadata count/key/value/UTF-8 tests.
 - [ ] Implement defensive metadata validation and cloning.
-- [ ] Write full omitted/value/null JSON matrix by marshaling enclosing PATCH structs using `json:",omitzero"`.
-- [ ] Test nil-capable `Field[T]` values cannot create ambiguous set-versus-null states.
-- [ ] Implement `Field[T]` without reflection if practical.
-- [ ] Write API-version validation tests.
-- [ ] Implement pinned default API version constant.
-- [ ] Add fuzz target for `Field[T]` JSON behavior.
-- [ ] Run unit, race, vet, and lint checks.
+- [x] Write full omitted/value/null JSON matrix by marshaling enclosing PATCH structs using `json:",omitzero"`.
+- [x] Test nil-capable `Field[T]` values cannot create ambiguous set-versus-null states.
+- [x] Implement `Field[T]` without reflection if practical.
+- [x] Write API-version validation tests.
+- [x] Implement pinned default API version constant.
+- [x] Add fuzz target for `Field[T]` JSON behavior.
+- [x] Run unit, race, vet, and lint checks.
 
 **Suggested commit:** `feat: add core Monime value types`
 
