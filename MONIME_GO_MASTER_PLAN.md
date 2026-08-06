@@ -1603,7 +1603,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 - [x] Write API-version validation tests.
 - [x] Implement pinned default API version constant.
 - [x] Add fuzz target for `Field[T]` JSON behavior.
-- [x] Run unit, race, vet, and lint checks.
+- [ ] Run unit, race, vet, and lint checks.
 
 **Suggested commit:** `feat: add core Monime value types`
 
