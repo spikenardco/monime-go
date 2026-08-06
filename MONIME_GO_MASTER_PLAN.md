@@ -25,7 +25,7 @@ The SDK will:
 - expose all 13 resource groups currently represented by `monimejs`;
 - use `context.Context` for cancellation and deadlines;
 - model monetary values as integer minor units;
-- provide safe cursor pagination and Go 1.24 iterators;
+- expose API-owned cursor pagination without imposing client-side pagination policy;
 - preserve PATCH omitted/value/null semantics;
 - implement bounded response decoding and typed errors;
 - retry only replay-safe requests;
@@ -68,7 +68,7 @@ These decisions are approved. Change one only through an explicit architecture d
 12. **API version:** a pinned default sent through `Monime-Version`; never silently follow an unversioned latest contract.
 13. **Response API:** single-resource methods return resource, response metadata, and error; list methods return a generic page containing response metadata.
 14. **PATCH semantics:** generic `Field[T]` models omitted, explicit value, and explicit JSON null.
-15. **Pagination:** raw page methods plus sequential Go 1.24 iterators.
+15. **Pagination:** list methods transmit documented pagination parameters and return API pagination data; the SDK neither generates cursors nor fetches subsequent pages automatically.
 16. **Errors:** typed errors plus stable sentinel classifications compatible with `errors.Is` and `errors.As` in Go 1.24.
 17. **Logging:** library never logs. Applications decide how and where to log.
 18. **Concurrency:** clients and services are immutable after construction and safe for concurrent use; services are exposed through accessor methods rather than writable fields.
@@ -649,7 +649,7 @@ type PaymentUpdateInput struct {
 
 Tests must marshal enclosing update structs and assert exact `{}`, value, and null JSON objects. `Set` must define and test behavior for nil-capable `T` so it cannot silently become wire-equivalent to `Null` while reporting a different state.
 
-### 9.5 Pagination
+### 9.5 API-owned pagination
 
 ```go
 type ListParams struct {
@@ -663,30 +663,9 @@ type Page[T any] struct {
 	Next     string
 	Response *Response
 }
-
-func (p *Page[T]) HasNext() bool
 ```
 
-Resource list parameters embed or reproduce `Limit` and `After` plus resource filters. Cursor remains opaque.
-
-### 9.6 Iterator contract
-
-Go 1.24 supports range-over-function:
-
-```go
-func (s *PaymentService) All(ctx context.Context, params *PaymentListParams) iter.Seq2[*Payment, error]
-```
-
-Iterator rules:
-
-- sequential requests only;
-- stop after first error;
-- honor context before requests and between yielded items;
-- keep filters immutable by cloning input once;
-- detect repeated cursors and return an error instead of looping forever;
-- never spawn a goroutine;
-- do not prefetch in v1;
-- document that breaking early stops further requests immediately.
+Resource list parameters transmit the API's documented `limit` and `after` values plus resource filters. The API creates and advances opaque cursors; callers decide whether and when to request another page. The SDK decodes pagination data from each API response but does not generate cursors, automatically fetch more pages, or impose pagination policy.
 
 ---
 
@@ -748,7 +727,6 @@ Create(ctx, FinancialAccountCreateInput, ...RequestOption) (*FinancialAccount, *
 Get(ctx, id string, *FinancialAccountGetParams) (*FinancialAccount, *Response, error)
 List(ctx, *FinancialAccountListParams) (*Page[FinancialAccount], error)
 Update(ctx, id string, FinancialAccountUpdateInput) (*FinancialAccount, *Response, error)
-All(ctx, *FinancialAccountListParams) iter.Seq2[*FinancialAccount, error]
 ```
 
 Model balances separately from account identity. `WithBalance` is a query option, not a fake `GetBalance` operation.
@@ -758,7 +736,6 @@ Model balances separately from account identity. `WithBalance` is a query option
 ```go
 Get(ctx, id string) (*FinancialTransaction, *Response, error)
 List(ctx, *FinancialTransactionListParams) (*Page[FinancialTransaction], error)
-All(ctx, *FinancialTransactionListParams) iter.Seq2[*FinancialTransaction, error]
 ```
 
 Read-only ledger. Model direction, account, origin, ownership graph, reference, reversal/fee relationships, amount, description, and timestamps only after confirming current schema.
@@ -771,7 +748,6 @@ Get(ctx, id string) (*PaymentCode, *Response, error)
 List(ctx, *PaymentCodeListParams) (*Page[PaymentCode], error)
 Update(ctx, id string, PaymentCodeUpdateInput) (*PaymentCode, *Response, error)
 Delete(ctx, id string) (*Response, error)
-All(ctx, *PaymentCodeListParams) iter.Seq2[*PaymentCode, error]
 ```
 
 Model one-time and recurrent invariants clearly. One-time requests must not contain recurrent targets. Recurrent requests require at least one valid completion target when the official contract requires it. Preserve API wire naming through JSON/query tags rather than leaking snake_case into Go fields.
@@ -782,7 +758,6 @@ Model one-time and recurrent invariants clearly. One-time requests must not cont
 Get(ctx, id string) (*Payment, *Response, error)
 List(ctx, *PaymentListParams) (*Page[Payment], error)
 Update(ctx, id string, PaymentUpdateInput) (*Payment, *Response, error)
-All(ctx, *PaymentListParams) iter.Seq2[*Payment, error]
 ```
 
 Model status, amount, channel, fees, references, financial-account linkage, ownership, metadata, and timestamps. Unknown status and channel values must decode without failing.
@@ -794,7 +769,6 @@ Create(ctx, CheckoutSessionCreateInput, ...RequestOption) (*CheckoutSession, *Re
 Get(ctx, id string) (*CheckoutSession, *Response, error)
 List(ctx, *CheckoutSessionListParams) (*Page[CheckoutSession], error)
 Delete(ctx, id string) (*Response, error)
-All(ctx, *CheckoutSessionListParams) iter.Seq2[*CheckoutSession, error]
 ```
 
 Validate line-item count, quantity, money, names, callback state, redirect URLs, branding color, payment-option flags, metadata, and HTTPS callback targets where required.
@@ -807,7 +781,6 @@ Get(ctx, id string) (*Payout, *Response, error)
 List(ctx, *PayoutListParams) (*Page[Payout], error)
 Update(ctx, id string, PayoutUpdateInput) (*Payout, *Response, error)
 Delete(ctx, id string) (*Response, error)
-All(ctx, *PayoutListParams) iter.Seq2[*Payout, error]
 ```
 
 Model bank, mobile-money, and wallet destinations without a permissive bag of optional fields. Prefer validated constructors or a sealed internal destination representation exposed through concrete input constructors. Preserve delayed status and delayed reason if current contract includes them; `monimejs` currently omits delayed status.
@@ -820,7 +793,6 @@ Get(ctx, id string) (*InternalTransfer, *Response, error)
 List(ctx, *InternalTransferListParams) (*Page[InternalTransfer], error)
 Update(ctx, id string, InternalTransferUpdateInput) (*InternalTransfer, *Response, error)
 Delete(ctx, id string) (*Response, error)
-All(ctx, *InternalTransferListParams) iter.Seq2[*InternalTransfer, error]
 ```
 
 Reject identical source and destination accounts. Validate positive amount and non-empty accounts.
@@ -841,7 +813,6 @@ Create(ctx, USSDOTPCreateInput, ...RequestOption) (*USSDOTP, *Response, error)
 Get(ctx, id string) (*USSDOTP, *Response, error)
 List(ctx, *USSDOTPListParams) (*Page[USSDOTP], error)
 Delete(ctx, id string) (*Response, error)
-All(ctx, *USSDOTPListParams) iter.Seq2[*USSDOTP, error]
 ```
 
 Never expose OTP secrets in errors or logs. Validate phone and duration only to the degree the official contract specifies.
@@ -854,7 +825,6 @@ Get(ctx, id string) (*Webhook, *Response, error)
 List(ctx, *WebhookListParams) (*Page[Webhook], error)
 Update(ctx, id string, WebhookUpdateInput) (*Webhook, *Response, error)
 Delete(ctx, id string) (*Response, error)
-All(ctx, *WebhookListParams) iter.Seq2[*Webhook, error]
 ParseWebhookEvent(body []byte) (*WebhookEvent, error)
 ```
 
@@ -1117,7 +1087,7 @@ Specific invariants:
 - webhook event list is non-empty and duplicate-free;
 - webhook target uses HTTPS outside explicit local tests;
 - idempotency keys satisfy verified length and HTTP-header safety rules;
-- list filters stay stable during iterator lifetime.
+- list parameters encode only the caller-supplied documented pagination and filter values.
 
 ---
 
@@ -1274,7 +1244,6 @@ Once defined:
 - webhook replay;
 - webhook timing attacks;
 - metadata or error-message PII leakage;
-- cursor loops;
 - concurrent caller mutation of request maps;
 - path injection through unescaped IDs;
 - custom base URL credential exfiltration.
@@ -1342,18 +1311,13 @@ For every service operation:
 
 ### 17.4 Pagination tests
 
-- one page;
-- multiple pages;
+- page decoding and response metadata;
+- documented limit validation;
+- caller-provided cursor passes through unchanged;
 - null next cursor;
 - absent next cursor;
 - empty page with next cursor;
-- repeated cursor detection;
-- stable filters;
-- break iteration early;
-- cancellation between pages;
-- error after partial iteration;
-- no goroutine leak;
-- sequential request count.
+- no automatic follow-up request.
 
 ### 17.5 Fuzz tests
 
@@ -1365,8 +1329,7 @@ For every service operation:
 - metadata validation;
 - webhook envelope parsing;
 - future signature-header parsing;
-- unknown event payloads;
-- cursor loop guard.
+- unknown event payloads.
 
 Seed corpora with real redacted fixtures and malformed boundary cases.
 
@@ -1387,7 +1350,6 @@ Executable `Example...` tests must cover:
 - payout with persisted idempotency key;
 - typed API error handling;
 - page-by-page listing;
-- range-over-function iteration;
 - context timeout;
 - receipt redemption;
 - webhook event parsing.
@@ -1398,7 +1360,7 @@ Use Go 1.24 `b.Loop()` for:
 
 - request encoding;
 - response decoding;
-- pagination iteration overhead;
+- pagination parameter encoding;
 - webhook parsing;
 - validation of representative large metadata and list payloads.
 
@@ -1433,7 +1395,7 @@ Use `//go:build integration` for opt-in Monime test-environment tests. Never run
 - money and minor units;
 - retries and total deadlines;
 - idempotency persistence;
-- pagination and resumability;
+- API pagination response data and caller-managed traversal;
 - errors and request IDs;
 - webhook parsing, deduplication, and verification status;
 - custom HTTP transport;
@@ -1668,23 +1630,19 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Suggested commit:** `feat: add safe retries and idempotency`
 
-### Phase 5: Pagination
+### Phase 5: API-owned pagination
 
-**Goal:** support raw pages and leak-free Go 1.24 iterators.
+**Goal:** model API pagination request parameters and response data without client-driven traversal.
 
 **Files:** `pagination.go` and tests.
 
 - [ ] Test page decoding and response metadata.
 - [ ] Test limit validation.
-- [ ] Test single and multiple page iteration.
 - [ ] Test null/absent next cursor.
-- [ ] Test repeated cursor failure.
-- [ ] Test cancellation and early break.
-- [ ] Test stable cloned filters.
-- [ ] Implement `Page[T]` and internal iterator helper.
-- [ ] Benchmark iteration overhead with `b.Loop()`.
+- [ ] Test that request cursors pass through unchanged.
+- [ ] Implement `Page[T]` and request pagination parameter encoding.
 
-**Suggested commit:** `feat: add cursor pagination`
+**Suggested commit:** `feat: add API pagination models`
 
 ### Phase 5A: Contract-freeze framework
 
@@ -1730,7 +1688,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 - [ ] Test create/get/list/update account operations.
 - [ ] Test optional balance query behavior.
 - [ ] Test transaction get/list filters.
-- [ ] Add account and transaction iterators.
+- [ ] Implement account and transaction list methods with API-owned pagination parameters.
 - [ ] Model ownership graph without recursive decoding hazards.
 - [ ] Add examples for wallet/account and reconciliation workflows.
 
@@ -1746,8 +1704,8 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 - [ ] Test create input cross-field invariants.
 - [ ] Test update omitted/value/null behavior.
 - [ ] Test list filters and query naming.
-- [ ] Implement payment-code CRUD and iterator.
-- [ ] Implement payment get/list/update and iterator.
+- [ ] Implement payment-code CRUD and list methods.
+- [ ] Implement payment get/list/update.
 - [ ] Preserve unknown statuses and channels.
 - [ ] Add one-time, recurrent, restricted-provider, and reconciliation examples.
 
@@ -1762,7 +1720,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 - [ ] Test line-item boundaries and minor-unit amounts.
 - [ ] Test URL and branding validation.
 - [ ] Test payment-option false values are encoded.
-- [ ] Implement create/get/list/delete and iterator.
+- [ ] Implement create/get/list/delete.
 - [ ] Add hosted checkout example.
 
 **Suggested commit:** `feat: add checkout sessions`
@@ -1777,9 +1735,9 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 - [ ] Test each destination variant.
 - [ ] Test delayed and failed payout models.
 - [ ] Test persisted idempotency-key example.
-- [ ] Implement payout CRUD and iterator.
+- [ ] Implement payout CRUD and list methods.
 - [ ] Test source/destination inequality for transfers.
-- [ ] Implement transfer CRUD and iterator.
+- [ ] Implement transfer CRUD and list methods.
 - [ ] Add payout, top-up, split, and reserve examples.
 
 **Suggested commit:** `feat: add fund movement services`
@@ -1794,7 +1752,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 - [ ] Test positive entitlement units.
 - [ ] Implement receipt get/redeem.
 - [ ] Test OTP secret redaction.
-- [ ] Implement USSD OTP create/get/list/delete and iterator.
+- [ ] Implement USSD OTP create/get/list/delete.
 - [ ] Add entitlement and verification workflow examples.
 
 **Suggested commit:** `feat: add receipt and USSD OTP services`
@@ -1806,7 +1764,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 **Files:** `webhook.go`, `webhook_event.go`, `webhook_verify.go`, contract files, fixtures, examples, docs.
 
 - [ ] Confirm current CRUD support and deprecation state.
-- [ ] Implement supported CRUD methods and iterator.
+- [ ] Implement supported CRUD methods and list methods.
 - [ ] Add `Deprecated:` comment if creation is dashboard-only.
 - [ ] Test bounded webhook envelope parsing.
 - [ ] Test known and unknown event payloads.
@@ -1892,7 +1850,6 @@ These are candidates, not v1 commitments.
 - typed webhook payload decoding for every documented event;
 - request/response hooks compatible with OpenTelemetry without hard dependency;
 - endpoint-specific polling helpers with bounded backoff;
-- resumable iterator checkpoints;
 - batch helpers with explicit bounded concurrency;
 - official country service if current API still supports it;
 - API health/token-introspection method for startup diagnostics;
@@ -1937,7 +1894,7 @@ These are candidates, not v1 commitments.
 | `MonimeApiError` | `*monime.APIError` |
 | `instanceof` | `errors.As` and `errors.Is` |
 | list response envelope | `*monime.Page[T]` |
-| manual cursor loop | page methods or `All` iterator |
+| manual cursor loop | page methods |
 | `undefined` / value / `null` PATCH | zero `Field`, `Set`, `Null` |
 | `AbortError` | `context.Canceled` |
 | timeout error class | `context.DeadlineExceeded` through wrapped transport error |
@@ -1995,7 +1952,7 @@ The SDK is v1-ready only when:
 - all approved services and methods compile on Go 1.24;
 - every operation has contract fixtures and focused tests;
 - every POST side effect uses stable idempotency behavior;
-- every list operation supports page access and iterator access;
+- every list operation transmits documented pagination parameters and exposes API pagination response data without automatic traversal;
 - every exported symbol has useful documentation;
 - examples compile and run without live credentials;
 - default API version is explicit and documented;
