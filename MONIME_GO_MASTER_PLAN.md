@@ -9,7 +9,7 @@
 **Document date:** 2026-08-03  
 **Reference SDK:** `/home/ben/Desktop/monimejs` at commit `c1bec61c6156261df184601fc76df9999d6de8c7`  
 **Current Go workspace state:** empty directory, not yet a Git repository  
-**Document status:** approved architecture and phased implementation plan; each resource requires a contract-freeze artifact before implementation  
+**Document status:** approved architecture and phased implementation plan; each resource requires source-linked comments and reviewed contract tests before implementation.
 
 ---
 
@@ -129,7 +129,7 @@ When sources disagree, use this order:
 6. `monimejs` declarations and examples;
 7. legacy `2024-08-01` OpenAPI specification.
 
-Every unresolved conflict must be recorded in a contract fixture or ADR before implementation chooses a behavior.
+Every unresolved conflict must be recorded in an ADR before implementation chooses a behavior.
 
 ### 4.2 Official sources inspected
 
@@ -671,11 +671,11 @@ Resource list parameters transmit the API's documented `limit` and `after` value
 
 ## 10. Resource Contracts
 
-Exact fields must be reconciled against the pinned endpoint documentation and recorded fixtures before coding each resource. The following defines the initial service surface.
+Exact fields must be reconciled against the pinned endpoint documentation, source-linked service comments, and adjacent contract tests before coding each resource. The following defines the initial service surface.
 
-### 10.0 Mandatory contract-freeze gate
+### 10.0 Mandatory source-linked contract gate
 
-No resource model or method may be implemented until a reviewed contract artifact exists at `docs/contracts/caph.2025-08-23/<resource>.md`. Each artifact must contain:
+No resource model or method may be implemented until its service comment cites the reviewed official source and adjacent contract tests cover the route. The service comment must include the source URL, API version, retrieval date, and source checksum. The contract tests must cover:
 
 - exact HTTP method and path for every operation;
 - success status codes and whether a body is required;
@@ -686,13 +686,13 @@ No resource model or method may be implemented until a reviewed contract artifac
 - request and response envelope shapes;
 - endpoint-specific idempotency and retry eligibility;
 - documented error statuses, codes, and reasons;
-- source URL, source version, retrieval date, and source precedence;
+- source precedence;
 - every conflict among current docs, endpoint OpenAPI, sandbox behavior, `monimejs`, and legacy OpenAPI;
 - a chosen behavior and evidence for every resolved conflict;
 - redacted request, success, and error fixtures;
 - unresolved items that block implementation.
 
-Contract artifacts are review gates, not informal notes. Workers write contract tests from them before public types. Unknown or undocumented error-detail and event payload shapes remain lossless `json.RawMessage` rather than guessed exported structs.
+Source comments and contract tests are review gates, not informal notes. Unknown or undocumented error-detail and event payload shapes remain lossless `json.RawMessage` rather than guessed exported structs.
 
 ### 10.1 Banks
 
@@ -900,7 +900,7 @@ type Response struct {
 }
 ```
 
-The official documentation does not define the wire unit or grammar of `Monime-Request-Duration`, so retain it as a string until a contract fixture proves a stable conversion. Malformed optional diagnostic headers do not turn a successful resource response into an error.
+The official documentation does not define the wire unit or grammar of `Monime-Request-Duration`, so retain it as a string until a contract test proves a stable conversion. Malformed optional diagnostic headers do not turn a successful resource response into an error.
 
 ---
 
@@ -1182,7 +1182,7 @@ Required discovery work:
 1. obtain the current signing contract from official Monime documentation or maintainers;
 2. capture one valid test-environment delivery with redacted payload, signature, timestamp, and configured secret;
 3. obtain or construct maintainer-approved positive and negative vectors;
-4. record the protocol in `docs/contracts/caph.2025-08-23/webhook-signature.md`;
+4. document the protocol and source in the `WebhookVerifier` comment, then capture approved vectors in adjacent tests;
 5. independently reproduce every vector in a small throwaway verifier before designing exported code;
 6. review cryptographic assumptions and replay behavior;
 7. only then implement the required API above.
@@ -1644,20 +1644,20 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Suggested commit:** `feat: add API pagination models`
 
-### Phase 5A: Contract-freeze framework
+### Phase 5A: Source-linked contract framework
 
 **Goal:** make every later resource phase deterministic and prevent guessed public contracts.
 
-**Files:** `docs/contracts/README.md`, `docs/contracts/caph.2025-08-23/`, `internal/contracttest/`, redacted fixtures.
+**Files:** resource `*.go` comments, adjacent `*_test.go` contract tests, `internal/contracttest/` helpers where reuse is justified.
 
-- [ ] Write the required contract-artifact template from section 10.0.
-- [ ] Add source metadata format: URL, API version, retrieval date, checksum, and precedence.
-- [ ] Add a conflict table format with evidence, chosen behavior, and reviewer.
-- [ ] Add fixture redaction rules for tokens, account data, phone numbers, webhook secrets, and PII.
+- [ ] Add a service-comment format: source URL, API version, retrieval date, and source checksum.
+- [ ] Add contract-test coverage for method, path, headers, query, body, response envelope, status, field nullability, wire names, enum handling, documented errors, and redacted request/response cases.
+- [ ] Record conflicts, evidence, chosen behavior, and reviewer in contract-test comments.
+- [ ] Keep test values redacted: never include tokens, account data, phone numbers, webhook secrets, or PII.
 - [ ] Add a contract-test helper that checks method, path, headers, query, body, response envelope, and status without owning public models.
 - [ ] Freeze the shared authentication, standard-header, error-envelope, pagination, idempotency, and rate-limit contracts first.
-- [ ] Require a resource contract artifact as the first checklist item and review gate in every following phase.
-- [ ] Prohibit public model implementation while an artifact has unresolved blocking items.
+- [ ] Require a source-linked service comment and contract tests as the first checklist item and review gate in every following phase.
+- [ ] Prohibit public model implementation while the source or tests have unresolved blocking items.
 
 **Suggested commit:** `docs: add API contract freeze process`
 
@@ -1667,8 +1667,9 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Files:** `provider.go`, `bank.go`, `mobile_money.go`, `provider_kyc.go`, fixtures, examples, docs.
 
+- [ ] Add source-linked service comments and adjacent contract tests before public models.
 - [ ] Reconcile current endpoint schemas and paths with legacy spec.
-- [ ] Record redacted contract fixtures.
+- [ ] Add redacted request, success, and error cases to contract tests.
 - [ ] Implement bank list/get with country validation.
 - [ ] Implement mobile-money list/get with country validation.
 - [ ] Implement provider-KYC get with required account ID.
@@ -1684,6 +1685,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Files:** `financial_account.go`, `financial_transaction.go`, fixtures, examples, docs.
 
+- [ ] Add source-linked service comments and adjacent contract tests before public models.
 - [ ] Reconcile official schemas.
 - [ ] Test create/get/list/update account operations.
 - [ ] Test optional balance query behavior.
@@ -1700,6 +1702,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Files:** `payment_code.go`, `payment.go`, fixtures, examples, docs.
 
+- [ ] Add source-linked service comments and adjacent contract tests before public models.
 - [ ] Resolve current one-time/recurrent wire shapes.
 - [ ] Test create input cross-field invariants.
 - [ ] Test update omitted/value/null behavior.
@@ -1717,6 +1720,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Files:** `checkout_session.go`, fixtures, examples, docs.
 
+- [ ] Add source-linked service comments and adjacent contract tests before public models.
 - [ ] Test line-item boundaries and minor-unit amounts.
 - [ ] Test URL and branding validation.
 - [ ] Test payment-option false values are encoded.
@@ -1731,6 +1735,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Files:** `payout.go`, `internal_transfer.go`, fixtures, examples, docs.
 
+- [ ] Add source-linked service comments and adjacent contract tests before public models.
 - [ ] Reconcile payout destination schema differences between current docs and `monimejs`.
 - [ ] Test each destination variant.
 - [ ] Test delayed and failed payout models.
@@ -1748,6 +1753,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Files:** `receipt.go`, `ussd_otp.go`, fixtures, examples, docs.
 
+- [ ] Add source-linked service comments and adjacent contract tests before public models.
 - [ ] Test redeem-all versus selected-entitlement exclusivity.
 - [ ] Test positive entitlement units.
 - [ ] Implement receipt get/redeem.
@@ -1761,8 +1767,9 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Goal:** safely model webhook configuration, parse inbound events, and ship contract-proven signature verification.
 
-**Files:** `webhook.go`, `webhook_event.go`, `webhook_verify.go`, contract files, fixtures, examples, docs.
+**Files:** `webhook.go`, `webhook_event.go`, `webhook_verify.go`, adjacent tests, examples, docs.
 
+- [ ] Add source-linked service comments and adjacent contract tests before public models.
 - [ ] Confirm current CRUD support and deprecation state.
 - [ ] Implement supported CRUD methods and list methods.
 - [ ] Add `Deprecated:` comment if creation is dashboard-only.
@@ -1807,7 +1814,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Goal:** detect upstream change and publish repeatably.
 
-**Files:** `.github/workflows/contract-drift.yml`, release workflow, contract scripts/fixtures.
+**Files:** `.github/workflows/contract-drift.yml`, release workflow, drift-check source.
 
 - [ ] Snapshot source URLs, API version, and checksums.
 - [ ] Compare endpoint operation inventory on schedule.
@@ -1950,7 +1957,7 @@ These are candidates, not v1 commitments.
 The SDK is v1-ready only when:
 
 - all approved services and methods compile on Go 1.24;
-- every operation has contract fixtures and focused tests;
+- every operation has a source-linked service comment and focused contract tests;
 - every POST side effect uses stable idempotency behavior;
 - every list operation transmits documented pagination parameters and exposes API pagination response data without automatic traversal;
 - every exported symbol has useful documentation;
