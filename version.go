@@ -3,6 +3,7 @@ package monime
 import (
 	"errors"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -26,6 +27,9 @@ func validateAPIVersion(version APIVersion) error {
 		value[9] != '-' || value[12] != '-' ||
 		!isASCIIDigits(value[5:9]) || !isASCIIDigits(value[10:12]) || !isASCIIDigits(value[13:15]) {
 		return errors.New("monime: api version must have the caph.YYYY-MM-DD form")
+	}
+	if _, err := time.Parse("2006-01-02", value[5:]); err != nil {
+		return errors.New("monime: api version must contain a valid date")
 	}
 
 	return nil

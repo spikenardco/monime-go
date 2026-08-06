@@ -42,6 +42,16 @@ func TestValidateAPIVersion(t *testing.T) {
 			version: "caph.2025-08-23\n",
 			wantErr: true,
 		},
+		{
+			name:    "invalid month",
+			version: "caph.2025-00-01",
+			wantErr: true,
+		},
+		{
+			name:    "invalid day",
+			version: "caph.2025-02-30",
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {
