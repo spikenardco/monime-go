@@ -77,6 +77,7 @@ func TestSet_NilNormalizesToNull(t *testing.T) {
 	t.Parallel()
 
 	var pointer *string
+	pointerChain := &pointer
 	var metadata map[string]string
 	var typedNil any = pointer
 
@@ -101,6 +102,13 @@ func TestSet_NilNormalizesToNull(t *testing.T) {
 			value: struct {
 				Value Field[map[string]string] `json:"value,omitzero"`
 			}{Value: Set(metadata)},
+		},
+		{
+			name:  "pointer chain",
+			field: Set(pointerChain),
+			value: struct {
+				Value Field[**string] `json:"value,omitzero"`
+			}{Value: Set(pointerChain)},
 		},
 		{
 			name:  "typed nil interface",
@@ -130,6 +138,14 @@ func TestSet_NilNormalizesToNull(t *testing.T) {
 				t.Errorf("json.Marshal() = %s, want {\"value\":null}", encoded)
 			}
 		})
+	}
+}
+
+func TestField_MarshalJSONRejectsOmittedValue(t *testing.T) {
+	t.Parallel()
+
+	if _, err := json.Marshal(Field[string]{}); err == nil {
+		t.Error("json.Marshal() error = nil, want error")
 	}
 }
 

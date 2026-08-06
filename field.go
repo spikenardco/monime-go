@@ -67,10 +67,18 @@ func isNil[T any](value T) bool {
 		return true
 	}
 
-	switch reflected.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return reflected.IsNil()
-	default:
-		return false
+	for reflected.Kind() == reflect.Interface || reflected.Kind() == reflect.Pointer {
+		if reflected.IsNil() {
+			return true
+		}
+
+		reflected = reflected.Elem()
 	}
+
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Slice:
+		return reflected.IsNil()
+	}
+
+	return false
 }
