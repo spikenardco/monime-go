@@ -27,6 +27,21 @@ func TestValidateAPIVersion(t *testing.T) {
 			version: APIVersion("\xff"),
 			wantErr: true,
 		},
+		{
+			name:    "malformed date",
+			version: "caph.2025-8-23",
+			wantErr: true,
+		},
+		{
+			name:    "unknown format",
+			version: "latest",
+			wantErr: true,
+		},
+		{
+			name:    "control character",
+			version: "caph.2025-08-23\n",
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {
