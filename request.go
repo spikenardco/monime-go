@@ -116,8 +116,11 @@ func (c *Client) request(ctx context.Context, options requestOptions, result any
 
 func (c *Client) buildURL(path string, query url.Values) *url.URL {
 	requestURL := *c.baseURL
-	requestURL.Path += "/v1" + path
-	requestURL.RawPath = ""
+	baseEscapedPath := requestURL.EscapedPath()
+	escapedPath := "/v1" + path
+	decodedPath, _ := url.PathUnescape(escapedPath)
+	requestURL.Path += decodedPath
+	requestURL.RawPath = baseEscapedPath + escapedPath
 	requestURL.RawQuery = query.Encode()
 	return &requestURL
 }

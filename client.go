@@ -29,15 +29,20 @@ type Config struct {
 
 // Client is a thin client for the Monime API.
 type Client struct {
-	spaceID      string
-	accessToken  string
-	baseURL      *url.URL
-	apiVersion   APIVersion
-	timeout      time.Duration
-	retries      int
-	retryDelay   time.Duration
-	retryBackoff float64
-	httpClient   *http.Client
+	spaceID               string
+	accessToken           string
+	baseURL               *url.URL
+	apiVersion            APIVersion
+	timeout               time.Duration
+	retries               int
+	retryDelay            time.Duration
+	retryBackoff          float64
+	httpClient            *http.Client
+	banks                 *BankService
+	mobileMoney           *MobileMoneyService
+	providerKYC           *ProviderKYCService
+	financialAccounts     *FinancialAccountService
+	financialTransactions *FinancialTransactionService
 }
 
 // New creates a Client from config.
@@ -55,7 +60,7 @@ func New(config Config) (*Client, error) {
 	baseURL.RawQuery = ""
 	baseURL.Fragment = ""
 
-	return &Client{
+	client := &Client{
 		spaceID:      config.SpaceID,
 		accessToken:  config.AccessToken,
 		baseURL:      baseURL,
@@ -65,7 +70,39 @@ func New(config Config) (*Client, error) {
 		retryDelay:   config.RetryDelay,
 		retryBackoff: config.RetryBackoff,
 		httpClient:   &http.Client{},
-	}, nil
+	}
+	client.banks = &BankService{client: client}
+	client.mobileMoney = &MobileMoneyService{client: client}
+	client.providerKYC = &ProviderKYCService{client: client}
+	client.financialAccounts = &FinancialAccountService{client: client}
+	client.financialTransactions = &FinancialTransactionService{client: client}
+
+	return client, nil
+}
+
+// Banks returns the bank provider service.
+func (c *Client) Banks() *BankService {
+	return c.banks
+}
+
+// MobileMoney returns the mobile money provider service.
+func (c *Client) MobileMoney() *MobileMoneyService {
+	return c.mobileMoney
+}
+
+// ProviderKYC returns the provider KYC service.
+func (c *Client) ProviderKYC() *ProviderKYCService {
+	return c.providerKYC
+}
+
+// FinancialAccounts returns the financial account service.
+func (c *Client) FinancialAccounts() *FinancialAccountService {
+	return c.financialAccounts
+}
+
+// FinancialTransactions returns the financial transaction service.
+func (c *Client) FinancialTransactions() *FinancialTransactionService {
+	return c.financialTransactions
 }
 
 func withDefaults(config Config) Config {
