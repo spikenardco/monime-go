@@ -3,6 +3,7 @@ package monime
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 )
 
 // Field represents an omitted, explicitly null, or assigned PATCH field.
@@ -12,8 +13,12 @@ type Field[T any] struct {
 	null  bool
 }
 
-// Set returns a Field that encodes value.
+// Set returns a Field that encodes value. Nil values encode as JSON null.
 func Set[T any](value T) Field[T] {
+	if isNil(value) {
+		return Null[T]()
+	}
+
 	return Field[T]{
 		value: value,
 		set:   true,
@@ -54,4 +59,35 @@ func (f Field[T]) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(f.value)
+}
+
+func isNil[T any](value T) bool {
+	reflected := reflect.ValueOf(value)
+	if !reflected.IsValid() {
+		return true
+	}
+
+	visited := map[uintptr]struct{}{}
+	for reflected.Kind() == reflect.Interface || reflected.Kind() == reflect.Pointer {
+		if reflected.IsNil() {
+			return true
+		}
+
+		if reflected.Kind() == reflect.Pointer {
+			pointer := reflected.Pointer()
+			if _, ok := visited[pointer]; ok {
+				return false
+			}
+			visited[pointer] = struct{}{}
+		}
+
+		reflected = reflected.Elem()
+	}
+
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Slice:
+		return reflected.IsNil()
+	}
+
+	return false
 }
