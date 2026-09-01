@@ -47,6 +47,9 @@ type Client struct {
 	payments              *PaymentService
 	checkoutSessions      *CheckoutSessionService
 	ussdOTPs              *USSDOTPService
+	payouts               *PayoutService
+	internalTransfers     *InternalTransferService
+	receipts              *ReceiptService
 }
 
 // New creates a Client from config.
@@ -84,6 +87,9 @@ func New(config Config) (*Client, error) {
 	client.payments = &PaymentService{client: client}
 	client.checkoutSessions = &CheckoutSessionService{client: client}
 	client.ussdOTPs = &USSDOTPService{client: client}
+	client.payouts = &PayoutService{client: client}
+	client.internalTransfers = &InternalTransferService{client: client}
+	client.receipts = &ReceiptService{client: client}
 
 	return client, nil
 }
@@ -131,6 +137,21 @@ func (c *Client) CheckoutSessions() *CheckoutSessionService {
 // USSDOTPs returns the USSD OTP service.
 func (c *Client) USSDOTPs() *USSDOTPService {
 	return c.ussdOTPs
+}
+
+// Payouts returns the payout service.
+func (c *Client) Payouts() *PayoutService {
+	return c.payouts
+}
+
+// InternalTransfers returns the internal transfer service.
+func (c *Client) InternalTransfers() *InternalTransferService {
+	return c.internalTransfers
+}
+
+// Receipts returns the receipt service.
+func (c *Client) Receipts() *ReceiptService {
+	return c.receipts
 }
 
 func withDefaults(config Config) Config {
