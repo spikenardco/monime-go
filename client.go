@@ -7,6 +7,14 @@ import (
 	"time"
 )
 
+const (
+	defaultBaseURL      = "https://api.monime.io"
+	defaultTimeout      = 30 * time.Second
+	defaultRetries      = 2
+	defaultRetryDelay   = time.Second
+	defaultRetryBackoff = 2
+)
+
 // Config configures a Client.
 type Config struct {
 	SpaceID      string
@@ -34,6 +42,7 @@ type Client struct {
 
 // New creates a Client from config.
 func New(config Config) (*Client, error) {
+	config = withDefaults(config)
 	if err := validateConfig(config); err != nil {
 		return nil, err
 	}
@@ -57,4 +66,27 @@ func New(config Config) (*Client, error) {
 		retryBackoff: config.RetryBackoff,
 		httpClient:   &http.Client{},
 	}, nil
+}
+
+func withDefaults(config Config) Config {
+	if config.BaseURL == "" {
+		config.BaseURL = defaultBaseURL
+	}
+	if config.APIVersion == "" {
+		config.APIVersion = APIVersionCaph20250823
+	}
+	if config.Timeout == 0 {
+		config.Timeout = defaultTimeout
+	}
+	if config.Retries == 0 {
+		config.Retries = defaultRetries
+	}
+	if config.RetryDelay == 0 {
+		config.RetryDelay = defaultRetryDelay
+	}
+	if config.RetryBackoff == 0 {
+		config.RetryBackoff = defaultRetryBackoff
+	}
+
+	return config
 }

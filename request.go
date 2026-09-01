@@ -64,9 +64,26 @@ func validateConfig(config Config) error {
 	return nil
 }
 
+func validateRequestConfig(config *RequestConfig) error {
+	if config == nil {
+		return nil
+	}
+	if config.Timeout < 0 {
+		return newConfigValidationError("Timeout", "must be non-negative")
+	}
+	if config.Retries < 0 {
+		return newConfigValidationError("Retries", "must be non-negative")
+	}
+
+	return nil
+}
+
 func (c *Client) request(ctx context.Context, options requestOptions, result any) error {
 	if ctx == nil {
 		return errors.New("monime: nil context")
+	}
+	if err := validateRequestConfig(options.Config); err != nil {
+		return err
 	}
 
 	requestURL := c.buildURL(options.Path, options.Query)
@@ -123,13 +140,13 @@ func (c *Client) requestSettings(config *RequestConfig) (time.Duration, int) {
 		return c.timeout, c.retries
 	}
 
-	timeout := c.timeout
-	if config.Timeout != 0 {
-		timeout = config.Timeout
+	timeout := config.Timeout
+	if timeout == 0 {
+		timeout = defaultTimeout
 	}
-	retries := c.retries
-	if config.Retries != 0 {
-		retries = config.Retries
+	retries := config.Retries
+	if retries == 0 {
+		retries = defaultRetries
 	}
 
 	return timeout, retries
@@ -204,8 +221,9 @@ func (c *Client) executeAttempt(ctx context.Context, method string, requestURL *
 	if err := json.Unmarshal(responseBody, result); err != nil {
 		return &APIError{
 			Status:  response.StatusCode,
+			Code:    response.StatusCode,
 			Reason:  "invalid_json",
-			Message: "invalid JSON response from server",
+			Message: "invalid json response from server",
 		}
 	}
 
@@ -215,14 +233,16 @@ func (c *Client) executeAttempt(ctx context.Context, method string, requestURL *
 func parseAPIError(status int, headers http.Header, body []byte) *APIError {
 	apiError := &APIError{
 		Status:    status,
+		Code:      status,
 		Reason:    "http_error",
-		Message:   "API request failed",
+		Message:   "api request failed",
 		Retryable: isRetryableStatus(status),
 	}
 	apiError.RetryAfter, apiError.retryAfterSet = parseRetryAfter(headers.Get("Retry-After"), time.Now())
 
 	var envelope struct {
-		Error struct {
+		Error *struct {
+			Code    int             `json:"code"`
 			Reason  string          `json:"reason"`
 			Message string          `json:"message"`
 			Details json.RawMessage `json:"details"`
@@ -230,9 +250,14 @@ func parseAPIError(status int, headers http.Header, body []byte) *APIError {
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		apiError.Reason = "invalid_json"
-		apiError.Message = "invalid JSON response from server"
+		apiError.Message = "invalid json response from server"
 		return apiError
 	}
+	if envelope.Error == nil {
+		return apiError
+	}
+	apiError.Code = envelope.Error.Code
+	apiError.Retryable = isRetryableStatus(apiError.Code)
 	if envelope.Error.Reason != "" {
 		apiError.Reason = envelope.Error.Reason
 	}
@@ -247,7 +272,7 @@ func parseAPIError(status int, headers http.Header, body []byte) *APIError {
 func isRetryable(err error) bool {
 	var apiError *APIError
 	if errors.As(err, &apiError) {
-		return apiError.Retryable
+		return isRetryableStatus(apiError.Code)
 	}
 
 	var networkError *NetworkError

@@ -9,6 +9,7 @@ import (
 // APIError is returned when the API responds with a non-success HTTP status.
 type APIError struct {
 	Status        int
+	Code          int
 	Reason        string
 	Message       string
 	Details       json.RawMessage
@@ -22,7 +23,7 @@ func (e *APIError) Error() string {
 		return e.Message
 	}
 
-	return fmt.Sprintf("monime API error: HTTP %d", e.Status)
+	return fmt.Sprintf("monime api error: http %d", e.Status)
 }
 
 // TimeoutError is returned when an individual request attempt exceeds its timeout.
