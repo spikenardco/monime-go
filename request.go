@@ -142,11 +142,11 @@ func (c *Client) requestSettings(config *RequestConfig) (time.Duration, int) {
 
 	timeout := config.Timeout
 	if timeout == 0 {
-		timeout = defaultTimeout
+		timeout = c.timeout
 	}
 	retries := config.Retries
 	if retries == 0 {
-		retries = defaultRetries
+		retries = c.retries
 	}
 
 	return timeout, retries
