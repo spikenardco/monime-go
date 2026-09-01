@@ -50,6 +50,7 @@ type Client struct {
 	payouts               *PayoutService
 	internalTransfers     *InternalTransferService
 	receipts              *ReceiptService
+	webhooks              *WebhookService
 }
 
 // New creates a Client from config.
@@ -90,6 +91,7 @@ func New(config Config) (*Client, error) {
 	client.payouts = &PayoutService{client: client}
 	client.internalTransfers = &InternalTransferService{client: client}
 	client.receipts = &ReceiptService{client: client}
+	client.webhooks = &WebhookService{client: client}
 
 	return client, nil
 }
@@ -152,6 +154,11 @@ func (c *Client) InternalTransfers() *InternalTransferService {
 // Receipts returns the receipt service.
 func (c *Client) Receipts() *ReceiptService {
 	return c.receipts
+}
+
+// Webhooks returns the webhook service.
+func (c *Client) Webhooks() *WebhookService {
+	return c.webhooks
 }
 
 func withDefaults(config Config) Config {
