@@ -43,6 +43,10 @@ type Client struct {
 	providerKYC           *ProviderKYCService
 	financialAccounts     *FinancialAccountService
 	financialTransactions *FinancialTransactionService
+	paymentCodes          *PaymentCodeService
+	payments              *PaymentService
+	checkoutSessions      *CheckoutSessionService
+	ussdOTPs              *USSDOTPService
 }
 
 // New creates a Client from config.
@@ -76,6 +80,10 @@ func New(config Config) (*Client, error) {
 	client.providerKYC = &ProviderKYCService{client: client}
 	client.financialAccounts = &FinancialAccountService{client: client}
 	client.financialTransactions = &FinancialTransactionService{client: client}
+	client.paymentCodes = &PaymentCodeService{client: client}
+	client.payments = &PaymentService{client: client}
+	client.checkoutSessions = &CheckoutSessionService{client: client}
+	client.ussdOTPs = &USSDOTPService{client: client}
 
 	return client, nil
 }
@@ -103,6 +111,26 @@ func (c *Client) FinancialAccounts() *FinancialAccountService {
 // FinancialTransactions returns the financial transaction service.
 func (c *Client) FinancialTransactions() *FinancialTransactionService {
 	return c.financialTransactions
+}
+
+// PaymentCodes returns the payment code service.
+func (c *Client) PaymentCodes() *PaymentCodeService {
+	return c.paymentCodes
+}
+
+// Payments returns the payment service.
+func (c *Client) Payments() *PaymentService {
+	return c.payments
+}
+
+// CheckoutSessions returns the checkout session service.
+func (c *Client) CheckoutSessions() *CheckoutSessionService {
+	return c.checkoutSessions
+}
+
+// USSDOTPs returns the USSD OTP service.
+func (c *Client) USSDOTPs() *USSDOTPService {
+	return c.ussdOTPs
 }
 
 func withDefaults(config Config) Config {
