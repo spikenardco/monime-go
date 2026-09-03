@@ -37,8 +37,9 @@ client, err := monime.New(
 	monime.Config{
 		SpaceID:     "spc_...",
 		AccessToken: "mon_...",
+		Timeout:      45 * time.Second, // Optional.
+		Retries:      2,                // Optional.
 	},
-	monime.WithHTTPClient(http.DefaultClient),
 )
 if err != nil {
 	return err
@@ -52,14 +53,29 @@ paymentCode, response, err := client.PaymentCodes().Create(ctx, monime.CreatePay
 `New` has the signature:
 
 ```go
-func New(config Config, options ...Option) (*Client, error)
+func New(config Config) (*Client, error)
 ```
 
-`Config` contains only required identity and stable API settings: `SpaceID`,
-`AccessToken`, and optional `APIVersion`. Operational configuration is supplied
-by options: `WithBaseURL`, `WithHTTPClient`, `WithTimeout`, and `WithRetryPolicy`.
-An option explicitly controls each behavior, so zero does not ambiguously mean
-both “use a default” and “disable”.
+`Config` contains required credentials and optional execution settings:
+
+```go
+type Config struct {
+	SpaceID      string
+	AccessToken  string
+	BaseURL      string
+	APIVersion   string
+	Timeout      time.Duration
+	Retries      int
+	RetryDelay   time.Duration
+	RetryBackoff float64
+}
+```
+
+`SpaceID` and `AccessToken` are required. An empty `BaseURL` uses the production
+API, an empty `APIVersion` uses the pinned SDK version, and a zero `Timeout`
+uses 30 seconds. `Retries` is the number of retries after the first attempt;
+zero disables retries. `RetryDelay` and `RetryBackoff` use SDK defaults when
+retries are enabled and their values are zero.
 
 Services are concrete types with no exported interfaces. Every network method
 accepts `ctx context.Context` first, then operation inputs, and returns the
@@ -113,23 +129,22 @@ The executor:
 2. encodes a typed input once, preserving the same bytes across retries;
 3. creates a new `http.Request` per attempt with that operation context;
 4. adds Authorization, `Monime-Space-Id`, and `Monime-Version` headers;
-5. generates one UUIDv4 idempotency key for an eligible POST unless the caller
-   supplied one through a narrowly scoped request option;
+5. generates one UUIDv4 idempotency key for every eligible POST and preserves
+   it for the complete operation;
 6. reads a bounded response body, decodes successful envelopes, and returns
    response metadata;
 7. retries only eligible transient failures, honoring `Retry-After` and
    interrupting retry waits when the operation context is canceled.
 
-The client reuses one caller-supplied or internally created `http.Client`, as
-recommended by `net/http` for concurrent use. It does not store a context.
-`http.Client.Timeout` is not set; the operation context is the sole SDK timeout
-authority and never extends an earlier caller deadline.
+The client creates and reuses one internal standard-library `http.Client`, as
+recommended by `net/http` for concurrent use. Consumers cannot replace its
+transport. The client does not store a context. `http.Client.Timeout` is not
+set; the operation context is the sole SDK timeout authority and never extends
+an earlier caller deadline.
 
 POST is retryable because its idempotency key is stable for the complete
 operation. GET is retryable for transient failures. PATCH and DELETE are not
-retried by default because their replay guarantee is not established by the API
-contract. A request-specific option may set an idempotency key only for
-operations that accept it; it does not become a bag of transport overrides.
+retried because their replay guarantee is not established by the API contract.
 
 ## Errors
 
@@ -149,7 +164,7 @@ types support `errors.As`; no error requires parsing text.
 Keep one public package and small focused files:
 
 ```text
-client.go             Client, Config, Option, service accessors
+client.go             Client, Config, service accessors
 transport.go          unexported request execution and retry logic
 response.go           Response, Page, PageInfo, envelope decoding
 error.go              public error types
