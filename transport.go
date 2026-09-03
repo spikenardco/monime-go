@@ -356,3 +356,114 @@ func newUUIDv4() (string, error) {
 
 	return string(encoded), nil
 }
+
+// do executes a typed API operation. Resource services use it to decode the
+// documented result envelope into output.
+func (c *Client) do(ctx context.Context, method, path string, query url.Values, input any, output any) (Response, error) {
+	if ctx == nil {
+		return Response{}, errors.New("monime: nil context")
+	}
+
+	operationCtx := ctx
+	cancel := func() {}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && c.timeout > 0 {
+		operationCtx, cancel = context.WithTimeout(ctx, c.timeout)
+	}
+	defer cancel()
+
+	body, err := marshalBody(input)
+	if err != nil {
+		return Response{}, err
+	}
+	requestURL := c.buildURL(path, query)
+	headers, err := c.requestHeaders(method, body != nil, nil)
+	if err != nil {
+		return Response{}, err
+	}
+
+	var lastErr error
+	for attempt := 0; ; attempt++ {
+		response, err := c.doAttempt(operationCtx, method, requestURL, body, headers, output)
+		if err == nil {
+			return response, nil
+		}
+		lastErr = err
+		if operationCtx.Err() != nil {
+			if ctx.Err() != nil {
+				return Response{}, ctx.Err()
+			}
+			return Response{}, &TimeoutError{Timeout: c.timeout}
+		}
+		if attempt >= c.retries || (method != http.MethodGet && method != http.MethodPost) || !isRetryable(err) {
+			return Response{}, err
+		}
+		if err := sleep(operationCtx, c.calculateRetryDelay(attempt, lastErr)); err != nil {
+			return Response{}, err
+		}
+	}
+}
+
+func (c *Client) doAttempt(ctx context.Context, method string, requestURL *url.URL, body []byte, headers http.Header, output any) (Response, error) {
+	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), bytes.NewReader(body))
+	if err != nil {
+		return Response{}, fmt.Errorf("monime: create request: %w", err)
+	}
+	request.Header = headers.Clone()
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return Response{}, ctx.Err()
+		}
+		return Response{}, &NetworkError{Cause: err}
+	}
+	defer response.Body.Close()
+	bodyBytes, err := io.ReadAll(io.LimitReader(response.Body, 10<<20))
+	if err != nil {
+		return Response{}, &NetworkError{Cause: err}
+	}
+	metadata := newResponse(response.StatusCode, response.Header)
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return metadata, parseAPIError(response.StatusCode, response.Header, bodyBytes)
+	}
+	if len(bodyBytes) == 0 || output == nil {
+		return metadata, nil
+	}
+	var envelope struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(bodyBytes, &envelope); err != nil {
+		return metadata, &APIError{Status: response.StatusCode, Code: response.StatusCode, Reason: "invalid_json", Message: "invalid json response from server", Body: bodyBytes}
+	}
+	if len(envelope.Result) != 0 && string(envelope.Result) != "null" {
+		if err := json.Unmarshal(envelope.Result, output); err != nil {
+			return metadata, &APIError{Status: response.StatusCode, Code: response.StatusCode, Reason: "invalid_result", Message: "invalid result response from server", Body: bodyBytes}
+		}
+	}
+	return metadata, nil
+}
+
+func (c *Client) get(ctx context.Context, path string, query url.Values, config *RequestConfig) (*apiResponse, error) {
+	r := &apiResponse{}
+	err := c.request(ctx, requestOptions{Method: http.MethodGet, Path: path, Query: query, Config: config}, r)
+	return r, err
+}
+func (c *Client) getList(ctx context.Context, path string, query url.Values, config *RequestConfig) (*apiListResponse, error) {
+	r := &apiListResponse{}
+	err := c.request(ctx, requestOptions{Method: http.MethodGet, Path: path, Query: query, Config: config}, r)
+	return r, err
+}
+func (c *Client) post(ctx context.Context, path string, body any, config *RequestConfig) (*apiResponse, error) {
+	r := &apiResponse{}
+	err := c.request(ctx, requestOptions{Method: http.MethodPost, Path: path, Body: body, Config: config}, r)
+	return r, err
+}
+func (c *Client) patch(ctx context.Context, path string, body any, config *RequestConfig) (*apiResponse, error) {
+	r := &apiResponse{}
+	err := c.request(ctx, requestOptions{Method: http.MethodPatch, Path: path, Body: body, Config: config}, r)
+	return r, err
+}
+func (c *Client) delete(ctx context.Context, path string, config *RequestConfig) (*apiDeleteResponse, error) {
+	r := &apiDeleteResponse{}
+	err := c.request(ctx, requestOptions{Method: http.MethodDelete, Path: path, Config: config}, r)
+	return r, err
+}
