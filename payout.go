@@ -3,34 +3,70 @@ package monime
 import (
 	"context"
 	"net/url"
+	"strconv"
 )
 
-// PayoutService manages payouts.
-type PayoutService struct {
-	client *Client
+type Payout struct {
+	ID          string            `json:"id"`
+	Status      string            `json:"status"`
+	Amount      Amount            `json:"amount"`
+	Destination PayoutDestination `json:"destination"`
+	Metadata    map[string]string `json:"metadata"`
 }
-
-// Create creates a payout.
-func (s *PayoutService) Create(ctx context.Context, input any, config *RequestConfig) (*apiResponse, error) {
-	return s.client.post(ctx, "/payouts", input, config)
+type PayoutDestination struct {
+	Type        string `json:"type"`
+	ProviderID  string `json:"providerId"`
+	PhoneNumber string `json:"phoneNumber"`
+	AccountID   string `json:"accountId"`
 }
-
-// Get retrieves a payout by ID.
-func (s *PayoutService) Get(ctx context.Context, id string, config *RequestConfig) (*apiResponse, error) {
-	return s.client.get(ctx, "/payouts/"+url.PathEscape(id), nil, config)
+type CreatePayoutInput struct {
+	Amount                   Amount            `json:"amount"`
+	Destination              PayoutDestination `json:"destination"`
+	SourceFinancialAccountID string            `json:"sourceFinancialAccountId,omitempty"`
+	Metadata                 map[string]string `json:"metadata,omitempty"`
 }
-
-// List retrieves payouts.
-func (s *PayoutService) List(ctx context.Context, params url.Values, config *RequestConfig) (*apiListResponse, error) {
-	return s.client.getList(ctx, "/payouts", params, config)
+type UpdatePayoutInput struct {
+	Metadata Field[map[string]string] `json:"metadata,omitzero"`
 }
-
-// Update updates a payout.
-func (s *PayoutService) Update(ctx context.Context, id string, input any, config *RequestConfig) (*apiResponse, error) {
-	return s.client.patch(ctx, "/payouts/"+url.PathEscape(id), input, config)
+type PayoutListQuery struct {
+	Limit         int
+	After, Status string
 }
+type PayoutService struct{ client *Client }
 
-// Delete deletes a payout.
-func (s *PayoutService) Delete(ctx context.Context, id string, config *RequestConfig) (*apiDeleteResponse, error) {
-	return s.client.delete(ctx, "/payouts/"+url.PathEscape(id), config)
+func (s *PayoutService) Create(ctx context.Context, i CreatePayoutInput) (Payout, Response, error) {
+	var r Payout
+	x, e := s.client.do(ctx, "POST", "/payouts", nil, i, &r)
+	return r, x, e
+}
+func (s *PayoutService) Get(ctx context.Context, id string) (Payout, Response, error) {
+	var r Payout
+	x, e := s.client.do(ctx, "GET", "/payouts/"+url.PathEscape(id), nil, nil, &r)
+	return r, x, e
+}
+func (s *PayoutService) List(ctx context.Context, q PayoutListQuery) (Page[Payout], Response, error) {
+	var r []Payout
+	x, e := s.client.do(ctx, "GET", "/payouts", q.values(), nil, &r)
+	return Page[Payout]{Items: r}, x, e
+}
+func (s *PayoutService) Update(ctx context.Context, id string, i UpdatePayoutInput) (Payout, Response, error) {
+	var r Payout
+	x, e := s.client.do(ctx, "PATCH", "/payouts/"+url.PathEscape(id), nil, i, &r)
+	return r, x, e
+}
+func (s *PayoutService) Delete(ctx context.Context, id string) (Response, error) {
+	return s.client.do(ctx, "DELETE", "/payouts/"+url.PathEscape(id), nil, nil, nil)
+}
+func (q PayoutListQuery) values() url.Values {
+	v := url.Values{}
+	if q.Limit != 0 {
+		v.Set("limit", strconv.Itoa(q.Limit))
+	}
+	if q.After != "" {
+		v.Set("after", q.After)
+	}
+	if q.Status != "" {
+		v.Set("status", q.Status)
+	}
+	return v
 }
