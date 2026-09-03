@@ -1,8 +1,7 @@
-# Monime Go SDK: Master Context, Architecture, and Implementation Plan
+# Monime Go SDK: Master Context
 
-> **Current migration note:** This migration follows the current `monimejs` `origin/main` documentation. Older requirements in this plan for resource validation, test gates, typed models, and stricter transport behavior are superseded.
+> **Current migration note:** The typed SDK follows `docs/superpowers/specs/2026-09-03-idiomatic-go-sdk-design.md` and `docs/api-contract-caph-2025-08-23.md`. Earlier thin-wrapper requirements are superseded.
 
-> **For agentic workers:** Implement this plan task-by-task using fresh review context for each phase. Keep changes small, test-first, and independently reviewable. Update the checkboxes in this file as work lands.
 
 **Working project name:** `monime-go`  
 **Go package name:** `monime`  

@@ -1,82 +1,42 @@
 # Monime Go SDK
 
-> **Status: functional.** This unofficial SDK is a thin Go client for the versioned [Monime API](https://docs.monime.io/).
-
-`monime-go` forwards resource payloads, IDs, and query parameters unchanged. It validates client and per-request execution configuration only; it does not validate resource inputs.
-
-## Compatibility
-
-- Go 1.24 or later
-- Monime API version `caph.2025-08-23` by default
+A typed Go client for the versioned Monime API. It requires Go 1.24 or newer
+and owns one reusable standard-library HTTP client.
 
 ## Quick start
 
 ```go
-package main
+client, err := monime.New(monime.Config{
+    SpaceID:     "spc_...",
+    AccessToken: "mon_...",
+})
+if err != nil { return err }
 
-import (
-	"context"
-	"fmt"
-	"net/url"
-
-	monime "github.com/spikenardco/monime-go"
-)
-
-func main() {
-	client, err := monime.New(monime.Config{
-		SpaceID:     "space-id",
-		AccessToken: "access-token",
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	ctx := context.Background()
-	created, err := client.PaymentCodes().Create(ctx, map[string]any{
-		"amount": map[string]any{
-			"currency": "SLE",
-			"value":    5000,
-		},
-	}, nil)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(string(created.Result))
-
-	codes, err := client.PaymentCodes().List(ctx, url.Values{
-		"limit": {"10"},
-	}, nil)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(string(codes.Result))
-}
+code, response, err := client.PaymentCodes().Create(ctx, monime.CreatePaymentCodeInput{
+    Name: "Invoice 42",
+    Amount: &monime.Amount{Currency: monime.CurrencySLE, Value: 5000},
+})
+_ = code
+_ = response.RequestID
 ```
 
-Single-resource and list API envelopes expose their untyped `result` as `json.RawMessage`; list envelopes also expose `pagination` as `json.RawMessage`.
+`SpaceID` and `AccessToken` are required. `BaseURL` defaults to
+`https://api.monime.io`, `APIVersion` defaults to `caph.2025-08-23`, and
+`Timeout` defaults to 30 seconds. `Retries` is retries after the first
+attempt; zero disables retries. When retries are enabled, zero `RetryDelay`
+and `RetryBackoff` use one second and two respectively.
 
-## Defaults and requests
+List methods return `Page[T]` and `Response`; use `PageInfo.Next` as the opaque
+`after` cursor. GET and POST requests retry transient network failures and
+HTTP 429/500/502/503/504. Every POST receives a UUID idempotency key preserved
+across its retries.
 
-`Config` defaults to `https://api.monime.io`, API version `caph.2025-08-23`, a 30-second timeout, 2 retries, a 1-second retry delay, and retry backoff of 2. Zero-valued execution fields in `Config` and `RequestConfig` use these defaults; zero does not disable an execution setting.
-
-Every POST receives an idempotency key. Supply `RequestConfig.IdempotencyKey` to choose it; otherwise the SDK generates one and preserves it across retries.
-
-## Errors and webhooks
-
-Non-success API responses return `*APIError`; attempt timeouts return `*TimeoutError`; other transport failures return `*NetworkError`. Invalid client or request execution settings return `*ValidationError`.
-
-`client.Webhooks()` supports create, get, list, update, and delete. Use `ParseWebhookEvent` to decode an incoming event body. This SDK does not provide webhook signature verification.
+Use `errors.As` for `*monime.APIError`, `*monime.NetworkError`,
+`*monime.TimeoutError`, and `*monime.ValidationError`. Caller cancellation and
+caller deadlines remain available through `errors.Is`.
 
 ## Development
-
-Run the standard library checks:
 
 ```sh
 make check
 ```
-
-See [MONIME_GO_MASTER_PLAN.md](MONIME_GO_MASTER_PLAN.md) for the approved architecture and phased implementation plan.
-
-## License
-
-Licensed under the [Apache License 2.0](LICENSE).
