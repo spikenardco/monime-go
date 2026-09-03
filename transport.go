@@ -18,8 +18,8 @@ import (
 	"time"
 )
 
-// RequestConfig overrides client settings for a single request.
-type RequestConfig struct {
+// requestConfig overrides client settings for a single request.
+type requestConfig struct {
 	Timeout        time.Duration
 	Retries        int
 	IdempotencyKey string
@@ -30,7 +30,7 @@ type requestOptions struct {
 	Path   string
 	Body   any
 	Query  url.Values
-	Config *RequestConfig
+	Config *requestConfig
 }
 
 func validateConfig(config Config) error {
@@ -64,7 +64,7 @@ func validateConfig(config Config) error {
 	return nil
 }
 
-func validateRequestConfig(config *RequestConfig) error {
+func validaterequestConfig(config *requestConfig) error {
 	if config == nil {
 		return nil
 	}
@@ -82,7 +82,7 @@ func (c *Client) request(ctx context.Context, options requestOptions, result any
 	if ctx == nil {
 		return errors.New("monime: nil context")
 	}
-	if err := validateRequestConfig(options.Config); err != nil {
+	if err := validaterequestConfig(options.Config); err != nil {
 		return err
 	}
 
@@ -138,7 +138,7 @@ func marshalBody(body any) ([]byte, error) {
 	return encoded, nil
 }
 
-func (c *Client) requestSettings(config *RequestConfig) (time.Duration, int) {
+func (c *Client) requestSettings(config *requestConfig) (time.Duration, int) {
 	if config == nil {
 		return c.timeout, c.retries
 	}
@@ -155,7 +155,7 @@ func (c *Client) requestSettings(config *RequestConfig) (time.Duration, int) {
 	return timeout, retries
 }
 
-func (c *Client) requestHeaders(method string, hasBody bool, config *RequestConfig) (http.Header, error) {
+func (c *Client) requestHeaders(method string, hasBody bool, config *requestConfig) (http.Header, error) {
 	headers := http.Header{
 		"Authorization":   {"Bearer " + c.accessToken},
 		"Monime-Space-Id": {c.spaceID},
@@ -440,30 +440,4 @@ func (c *Client) doAttempt(ctx context.Context, method string, requestURL *url.U
 		}
 	}
 	return metadata, nil
-}
-
-func (c *Client) get(ctx context.Context, path string, query url.Values, config *RequestConfig) (*apiResponse, error) {
-	r := &apiResponse{}
-	err := c.request(ctx, requestOptions{Method: http.MethodGet, Path: path, Query: query, Config: config}, r)
-	return r, err
-}
-func (c *Client) getList(ctx context.Context, path string, query url.Values, config *RequestConfig) (*apiListResponse, error) {
-	r := &apiListResponse{}
-	err := c.request(ctx, requestOptions{Method: http.MethodGet, Path: path, Query: query, Config: config}, r)
-	return r, err
-}
-func (c *Client) post(ctx context.Context, path string, body any, config *RequestConfig) (*apiResponse, error) {
-	r := &apiResponse{}
-	err := c.request(ctx, requestOptions{Method: http.MethodPost, Path: path, Body: body, Config: config}, r)
-	return r, err
-}
-func (c *Client) patch(ctx context.Context, path string, body any, config *RequestConfig) (*apiResponse, error) {
-	r := &apiResponse{}
-	err := c.request(ctx, requestOptions{Method: http.MethodPatch, Path: path, Body: body, Config: config}, r)
-	return r, err
-}
-func (c *Client) delete(ctx context.Context, path string, config *RequestConfig) (*apiDeleteResponse, error) {
-	r := &apiDeleteResponse{}
-	err := c.request(ctx, requestOptions{Method: http.MethodDelete, Path: path, Config: config}, r)
-	return r, err
 }
