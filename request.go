@@ -259,8 +259,10 @@ func parseAPIError(status int, headers http.Header, body []byte) *APIError {
 	if envelope.Error == nil {
 		return apiError
 	}
-	apiError.Code = envelope.Error.Code
-	apiError.Retryable = isRetryableStatus(apiError.Code)
+	if envelope.Error.Code != 0 {
+		apiError.Code = envelope.Error.Code
+		apiError.Retryable = isRetryableStatus(apiError.Code)
+	}
 	if envelope.Error.Reason != "" {
 		apiError.Reason = envelope.Error.Reason
 	}

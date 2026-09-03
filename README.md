@@ -33,8 +33,10 @@ func main() {
 
 	ctx := context.Background()
 	created, err := client.PaymentCodes().Create(ctx, map[string]any{
-		"amount":   5000,
-		"currency": "XOF",
+		"amount": map[string]any{
+			"currency": "SLE",
+			"value":    5000,
+		},
 	}, nil)
 	if err != nil {
 		panic(err)
