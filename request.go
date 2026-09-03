@@ -57,7 +57,7 @@ func validateConfig(config Config) error {
 	}
 
 	baseURL, err := url.Parse(config.BaseURL)
-	if err != nil || baseURL.Scheme != "https" || baseURL.Host == "" || baseURL.User != nil {
+	if err != nil || baseURL.Scheme != "https" || baseURL.Host == "" || baseURL.User != nil || baseURL.RawQuery != "" || baseURL.Fragment != "" {
 		return newConfigValidationError("BaseURL", "must be a valid HTTPS URL")
 	}
 
@@ -159,7 +159,7 @@ func (c *Client) requestHeaders(method string, hasBody bool, config *RequestConf
 	headers := http.Header{
 		"Authorization":   {"Bearer " + c.accessToken},
 		"Monime-Space-Id": {c.spaceID},
-		"Monime-Version":  {string(c.apiVersion)},
+		"Monime-Version":  {c.apiVersion},
 	}
 	if hasBody {
 		headers.Set("Content-Type", "application/json")

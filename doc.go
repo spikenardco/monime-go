@@ -1,5 +1,4 @@
-// Package monime provides an unofficial, functional thin Go client for the
-// versioned Monime API. Network operations accept context.Context and the SDK
-// forwards resource payloads, IDs, and query parameters without resource-level
-// validation.
+// Package monime provides an unofficial typed Go client for the versioned
+// Monime API. Network operations accept context.Context and return typed
+// resources with HTTP response metadata.
 package monime

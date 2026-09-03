@@ -10,7 +10,6 @@ import (
 const (
 	defaultBaseURL      = "https://api.monime.io"
 	defaultTimeout      = 30 * time.Second
-	defaultRetries      = 2
 	defaultRetryDelay   = time.Second
 	defaultRetryBackoff = 2
 )
@@ -20,7 +19,7 @@ type Config struct {
 	SpaceID      string
 	AccessToken  string
 	BaseURL      string
-	APIVersion   APIVersion
+	APIVersion   string
 	Timeout      time.Duration
 	Retries      int
 	RetryDelay   time.Duration
@@ -32,7 +31,7 @@ type Client struct {
 	spaceID               string
 	accessToken           string
 	baseURL               *url.URL
-	apiVersion            APIVersion
+	apiVersion            string
 	timeout               time.Duration
 	retries               int
 	retryDelay            time.Duration
@@ -166,18 +165,15 @@ func withDefaults(config Config) Config {
 		config.BaseURL = defaultBaseURL
 	}
 	if config.APIVersion == "" {
-		config.APIVersion = APIVersionCaph20250823
+		config.APIVersion = string(APIVersionCaph20250823)
 	}
 	if config.Timeout == 0 {
 		config.Timeout = defaultTimeout
 	}
-	if config.Retries == 0 {
-		config.Retries = defaultRetries
-	}
-	if config.RetryDelay == 0 {
+	if config.Retries > 0 && config.RetryDelay == 0 {
 		config.RetryDelay = defaultRetryDelay
 	}
-	if config.RetryBackoff == 0 {
+	if config.Retries > 0 && config.RetryBackoff == 0 {
 		config.RetryBackoff = defaultRetryBackoff
 	}
 
