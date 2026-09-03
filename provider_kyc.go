@@ -11,6 +11,6 @@ type ProviderKYCService struct {
 }
 
 // Get retrieves KYC information for an account at a provider.
-func (s *ProviderKYCService) Get(ctx context.Context, providerID string, params url.Values, config *RequestConfig) (*APIResponse, error) {
+func (s *ProviderKYCService) Get(ctx context.Context, providerID string, params url.Values, config *RequestConfig) (*apiResponse, error) {
 	return s.client.get(ctx, "/provider-kyc/"+url.PathEscape(providerID), params, config)
 }

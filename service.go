@@ -6,8 +6,8 @@ import (
 	"net/url"
 )
 
-func (c *Client) get(ctx context.Context, path string, query url.Values, config *RequestConfig) (*APIResponse, error) {
-	response := &APIResponse{}
+func (c *Client) get(ctx context.Context, path string, query url.Values, config *RequestConfig) (*apiResponse, error) {
+	response := &apiResponse{}
 	err := c.request(ctx, requestOptions{
 		Method: http.MethodGet,
 		Path:   path,
@@ -20,8 +20,8 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, config 
 	return response, nil
 }
 
-func (c *Client) getList(ctx context.Context, path string, query url.Values, config *RequestConfig) (*APIListResponse, error) {
-	response := &APIListResponse{}
+func (c *Client) getList(ctx context.Context, path string, query url.Values, config *RequestConfig) (*apiListResponse, error) {
+	response := &apiListResponse{}
 	err := c.request(ctx, requestOptions{
 		Method: http.MethodGet,
 		Path:   path,
@@ -34,8 +34,8 @@ func (c *Client) getList(ctx context.Context, path string, query url.Values, con
 	return response, nil
 }
 
-func (c *Client) post(ctx context.Context, path string, body any, config *RequestConfig) (*APIResponse, error) {
-	response := &APIResponse{}
+func (c *Client) post(ctx context.Context, path string, body any, config *RequestConfig) (*apiResponse, error) {
+	response := &apiResponse{}
 	err := c.request(ctx, requestOptions{
 		Method: http.MethodPost,
 		Path:   path,
@@ -48,8 +48,8 @@ func (c *Client) post(ctx context.Context, path string, body any, config *Reques
 	return response, nil
 }
 
-func (c *Client) patch(ctx context.Context, path string, body any, config *RequestConfig) (*APIResponse, error) {
-	response := &APIResponse{}
+func (c *Client) patch(ctx context.Context, path string, body any, config *RequestConfig) (*apiResponse, error) {
+	response := &apiResponse{}
 	err := c.request(ctx, requestOptions{
 		Method: http.MethodPatch,
 		Path:   path,
@@ -62,8 +62,8 @@ func (c *Client) patch(ctx context.Context, path string, body any, config *Reque
 	return response, nil
 }
 
-func (c *Client) delete(ctx context.Context, path string, config *RequestConfig) (*APIDeleteResponse, error) {
-	response := &APIDeleteResponse{}
+func (c *Client) delete(ctx context.Context, path string, config *RequestConfig) (*apiDeleteResponse, error) {
+	response := &apiDeleteResponse{}
 	err := c.request(ctx, requestOptions{
 		Method: http.MethodDelete,
 		Path:   path,

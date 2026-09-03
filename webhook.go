@@ -15,27 +15,27 @@ type WebhookService struct {
 // Create creates a webhook.
 //
 // Deprecated: Create webhooks from the dashboard instead; API support is not guaranteed.
-func (s *WebhookService) Create(ctx context.Context, input any, config *RequestConfig) (*APIResponse, error) {
+func (s *WebhookService) Create(ctx context.Context, input any, config *RequestConfig) (*apiResponse, error) {
 	return s.client.post(ctx, "/webhooks", input, config)
 }
 
 // Get retrieves a webhook by ID.
-func (s *WebhookService) Get(ctx context.Context, id string, config *RequestConfig) (*APIResponse, error) {
+func (s *WebhookService) Get(ctx context.Context, id string, config *RequestConfig) (*apiResponse, error) {
 	return s.client.get(ctx, "/webhooks/"+url.PathEscape(id), nil, config)
 }
 
 // List retrieves webhooks.
-func (s *WebhookService) List(ctx context.Context, params url.Values, config *RequestConfig) (*APIListResponse, error) {
+func (s *WebhookService) List(ctx context.Context, params url.Values, config *RequestConfig) (*apiListResponse, error) {
 	return s.client.getList(ctx, "/webhooks", params, config)
 }
 
 // Update updates a webhook.
-func (s *WebhookService) Update(ctx context.Context, id string, input any, config *RequestConfig) (*APIResponse, error) {
+func (s *WebhookService) Update(ctx context.Context, id string, input any, config *RequestConfig) (*apiResponse, error) {
 	return s.client.patch(ctx, "/webhooks/"+url.PathEscape(id), input, config)
 }
 
 // Delete deletes a webhook.
-func (s *WebhookService) Delete(ctx context.Context, id string, config *RequestConfig) (*APIDeleteResponse, error) {
+func (s *WebhookService) Delete(ctx context.Context, id string, config *RequestConfig) (*apiDeleteResponse, error) {
 	return s.client.delete(ctx, "/webhooks/"+url.PathEscape(id), config)
 }
 

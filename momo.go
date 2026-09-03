@@ -11,11 +11,11 @@ type MobileMoneyService struct {
 }
 
 // List retrieves mobile money providers.
-func (s *MobileMoneyService) List(ctx context.Context, params url.Values, config *RequestConfig) (*APIListResponse, error) {
+func (s *MobileMoneyService) List(ctx context.Context, params url.Values, config *RequestConfig) (*apiListResponse, error) {
 	return s.client.getList(ctx, "/momos", params, config)
 }
 
 // Get retrieves a mobile money provider by ID.
-func (s *MobileMoneyService) Get(ctx context.Context, providerID string, config *RequestConfig) (*APIResponse, error) {
+func (s *MobileMoneyService) Get(ctx context.Context, providerID string, config *RequestConfig) (*apiResponse, error) {
 	return s.client.get(ctx, "/momos/"+url.PathEscape(providerID), nil, config)
 }

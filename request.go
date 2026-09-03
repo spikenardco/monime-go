@@ -204,7 +204,7 @@ func (c *Client) executeAttempt(ctx context.Context, method string, requestURL *
 		if attemptCtx.Err() != nil {
 			return &TimeoutError{Timeout: timeout}
 		}
-		return &NetworkError{err: err}
+		return &NetworkError{Cause: err}
 	}
 	defer response.Body.Close()
 
@@ -216,7 +216,7 @@ func (c *Client) executeAttempt(ctx context.Context, method string, requestURL *
 		if attemptCtx.Err() != nil {
 			return &TimeoutError{Timeout: timeout}
 		}
-		return &NetworkError{err: err}
+		return &NetworkError{Cause: err}
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return parseAPIError(response.StatusCode, response.Header, responseBody)
@@ -235,13 +235,12 @@ func (c *Client) executeAttempt(ctx context.Context, method string, requestURL *
 
 func parseAPIError(status int, headers http.Header, body []byte) *APIError {
 	apiError := &APIError{
-		Status:    status,
-		Code:      status,
-		Reason:    "http_error",
-		Message:   "api request failed",
-		Retryable: isRetryableStatus(status),
+		Status:  status,
+		Code:    status,
+		Reason:  "http_error",
+		Message: "api request failed",
 	}
-	apiError.RetryAfter, apiError.retryAfterSet = parseRetryAfter(headers.Get("Retry-After"), time.Now())
+	apiError.RetryAfter, _ = parseRetryAfter(headers.Get("Retry-After"), time.Now())
 
 	var envelope struct {
 		Error *struct {
@@ -261,7 +260,6 @@ func parseAPIError(status int, headers http.Header, body []byte) *APIError {
 	}
 	if envelope.Error.Code != 0 {
 		apiError.Code = envelope.Error.Code
-		apiError.Retryable = isRetryableStatus(apiError.Code)
 	}
 	if envelope.Error.Reason != "" {
 		apiError.Reason = envelope.Error.Reason
@@ -277,7 +275,7 @@ func parseAPIError(status int, headers http.Header, body []byte) *APIError {
 func isRetryable(err error) bool {
 	var apiError *APIError
 	if errors.As(err, &apiError) {
-		return isRetryableStatus(apiError.Code)
+		return isRetryableStatus(apiError.Status)
 	}
 
 	var networkError *NetworkError
@@ -295,7 +293,7 @@ func isRetryableStatus(status int) bool {
 
 func (c *Client) calculateRetryDelay(retryIndex int, err error) time.Duration {
 	var apiError *APIError
-	if errors.As(err, &apiError) && apiError.retryAfterSet {
+	if errors.As(err, &apiError) && apiError.RetryAfter > 0 {
 		return apiError.RetryAfter
 	}
 

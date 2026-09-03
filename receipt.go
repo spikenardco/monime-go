@@ -11,11 +11,11 @@ type ReceiptService struct {
 }
 
 // Get retrieves a receipt by order number.
-func (s *ReceiptService) Get(ctx context.Context, orderNumber string, config *RequestConfig) (*APIResponse, error) {
+func (s *ReceiptService) Get(ctx context.Context, orderNumber string, config *RequestConfig) (*apiResponse, error) {
 	return s.client.get(ctx, "/receipts/"+url.PathEscape(orderNumber), nil, config)
 }
 
 // Redeem redeems a receipt.
-func (s *ReceiptService) Redeem(ctx context.Context, orderNumber string, input any, config *RequestConfig) (*APIResponse, error) {
+func (s *ReceiptService) Redeem(ctx context.Context, orderNumber string, input any, config *RequestConfig) (*apiResponse, error) {
 	return s.client.post(ctx, "/receipts/"+url.PathEscape(orderNumber)+"/redeem", input, config)
 }
