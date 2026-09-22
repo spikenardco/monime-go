@@ -9,13 +9,15 @@ import (
 type ProviderStatus struct {
 	Active bool `json:"active"`
 }
+
 type ProviderFeature struct {
-	CanPayTo         bool              `json:"canPayTo"`
-	CanPayFrom       bool              `json:"canPayFrom"`
-	CanVerifyAccount bool              `json:"canVerifyAccount"`
-	Schemes          []string          `json:"schemes"`
-	Metadata         map[string]string `json:"metadata"`
+	CanPayTo         bool     `json:"canPayTo,omitempty"`
+	CanPayFrom       bool     `json:"canPayFrom,omitempty"`
+	CanVerifyAccount bool     `json:"canVerifyAccount,omitempty"`
+	Schemes          []string `json:"schemes,omitempty"`
+	Metadata         Metadata `json:"metadata,omitempty"`
 }
+
 type ProviderFeatureSet struct {
 	Payout          ProviderFeature `json:"payout"`
 	Payment         ProviderFeature `json:"payment"`
@@ -32,23 +34,32 @@ type Bank struct {
 	CreateTime string             `json:"createTime"`
 	UpdateTime string             `json:"updateTime"`
 }
+
 type BankListQuery struct {
 	Country string
 	Limit   int
 	After   string
 }
+
 type BankService struct{ client *Client }
 
 func (s *BankService) List(ctx context.Context, query BankListQuery) (Page[Bank], Response, error) {
-	var items []Bank
-	response, err := s.client.do(ctx, "GET", "/banks", query.values(), nil, &items)
-	return Page[Bank]{Items: items}, response, err
+	return doList[Bank](s.client, ctx, "/banks", query.values())
 }
+
 func (s *BankService) Get(ctx context.Context, providerID string) (Bank, Response, error) {
+	if providerID == "" {
+		return Bank{}, Response{}, newValidationError("ProviderID", "must be non-empty")
+	}
 	var bank Bank
-	response, err := s.client.do(ctx, "GET", "/banks/"+url.PathEscape(providerID), nil, nil, &bank)
+	response, err := s.client.do(ctx, operation{
+		method: "GET",
+		path:   "/banks/" + url.PathEscape(providerID),
+		output: &bank,
+	})
 	return bank, response, err
 }
+
 func (q BankListQuery) values() url.Values {
 	values := url.Values{}
 	if q.Country != "" {

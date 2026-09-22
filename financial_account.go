@@ -6,62 +6,124 @@ import (
 	"strconv"
 )
 
+// FinancialAccount is a wallet that holds and tracks funds.
 type FinancialAccount struct {
-	ID          string                  `json:"id"`
-	UVAN        string                  `json:"uvan"`
-	Name        string                  `json:"name"`
-	Currency    Currency                `json:"currency"`
-	Reference   string                  `json:"reference"`
-	Description string                  `json:"description"`
-	Balance     FinancialAccountBalance `json:"balance"`
-	CreateTime  string                  `json:"createTime"`
-	UpdateTime  string                  `json:"updateTime"`
-	Metadata    map[string]string       `json:"metadata"`
+	ID          string                   `json:"id"`
+	UVAN        string                   `json:"uvan"`
+	Name        string                   `json:"name"`
+	Currency    Currency                 `json:"currency"`
+	Reference   *string                  `json:"reference,omitempty"`
+	Description *string                  `json:"description,omitempty"`
+	Balance     *FinancialAccountBalance `json:"balance,omitempty"`
+	CreateTime  string                   `json:"createTime"`
+	UpdateTime  *string                  `json:"updateTime,omitempty"`
+	Metadata    Metadata                 `json:"metadata,omitempty"`
 }
+
 type FinancialAccountBalance struct {
 	Available Amount `json:"available"`
 }
+
 type CreateFinancialAccountInput struct {
-	Name        string            `json:"name"`
-	Currency    Currency          `json:"currency"`
-	Reference   *string           `json:"reference,omitempty"`
-	Description *string           `json:"description,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	Name        string   `json:"name"`
+	Currency    Currency `json:"currency"`
+	Reference   *string  `json:"reference,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	Metadata    Metadata `json:"metadata,omitempty"`
 }
+
 type UpdateFinancialAccountInput struct {
-	Name        Field[string]            `json:"name,omitzero"`
-	Reference   Field[string]            `json:"reference,omitzero"`
-	Description Field[string]            `json:"description,omitzero"`
-	Metadata    Field[map[string]string] `json:"metadata,omitzero"`
+	Name        Field[string]   `json:"name,omitzero"`
+	Reference   Field[string]   `json:"reference,omitzero"`
+	Description Field[string]   `json:"description,omitzero"`
+	Metadata    Field[Metadata] `json:"metadata,omitzero"`
 }
+
+type FinancialAccountGetQuery struct {
+	WithBalance bool
+}
+
 type FinancialAccountListQuery struct {
-	Limit     int
-	After     string
-	Currency  Currency
-	Reference string
+	Limit       int
+	After       string
+	UVAN        string
+	Reference   string
+	WithBalance bool
 }
+
 type FinancialAccountService struct{ client *Client }
 
-func (s *FinancialAccountService) Create(ctx context.Context, input CreateFinancialAccountInput) (FinancialAccount, Response, error) {
+func (s *FinancialAccountService) Create(
+	ctx context.Context,
+	input CreateFinancialAccountInput,
+) (FinancialAccount, Response, error) {
+	if input.Name == "" {
+		return FinancialAccount{}, Response{}, newValidationError("Name", "must be non-empty")
+	}
+	if input.Currency == "" {
+		return FinancialAccount{}, Response{}, newValidationError("Currency", "must be non-empty")
+	}
 	var result FinancialAccount
-	response, err := s.client.do(ctx, "POST", "/financial-accounts", nil, input, &result)
+	response, err := s.client.do(ctx, operation{
+		method: "POST",
+		path:   "/financial-accounts",
+		input:  input,
+		output: &result,
+	})
 	return result, response, err
 }
-func (s *FinancialAccountService) Get(ctx context.Context, id string) (FinancialAccount, Response, error) {
+
+func (s *FinancialAccountService) Get(
+	ctx context.Context,
+	id string,
+	query FinancialAccountGetQuery,
+) (FinancialAccount, Response, error) {
+	if id == "" {
+		return FinancialAccount{}, Response{}, newValidationError("ID", "must be non-empty")
+	}
 	var result FinancialAccount
-	response, err := s.client.do(ctx, "GET", "/financial-accounts/"+url.PathEscape(id), nil, nil, &result)
+	response, err := s.client.do(ctx, operation{
+		method: "GET",
+		path:   "/financial-accounts/" + url.PathEscape(id),
+		query:  query.values(),
+		output: &result,
+	})
 	return result, response, err
 }
-func (s *FinancialAccountService) List(ctx context.Context, query FinancialAccountListQuery) (Page[FinancialAccount], Response, error) {
-	var items []FinancialAccount
-	response, err := s.client.do(ctx, "GET", "/financial-accounts", query.values(), nil, &items)
-	return Page[FinancialAccount]{Items: items}, response, err
+
+func (s *FinancialAccountService) List(
+	ctx context.Context,
+	query FinancialAccountListQuery,
+) (Page[FinancialAccount], Response, error) {
+	return doList[FinancialAccount](s.client, ctx, "/financial-accounts", query.values())
 }
-func (s *FinancialAccountService) Update(ctx context.Context, id string, input UpdateFinancialAccountInput) (FinancialAccount, Response, error) {
+
+func (s *FinancialAccountService) Update(
+	ctx context.Context,
+	id string,
+	input UpdateFinancialAccountInput,
+) (FinancialAccount, Response, error) {
+	if id == "" {
+		return FinancialAccount{}, Response{}, newValidationError("ID", "must be non-empty")
+	}
 	var result FinancialAccount
-	response, err := s.client.do(ctx, "PATCH", "/financial-accounts/"+url.PathEscape(id), nil, input, &result)
+	response, err := s.client.do(ctx, operation{
+		method: "PATCH",
+		path:   "/financial-accounts/" + url.PathEscape(id),
+		input:  input,
+		output: &result,
+	})
 	return result, response, err
 }
+
+func (q FinancialAccountGetQuery) values() url.Values {
+	values := url.Values{}
+	if q.WithBalance {
+		values.Set("withBalance", "true")
+	}
+	return values
+}
+
 func (q FinancialAccountListQuery) values() url.Values {
 	values := url.Values{}
 	if q.Limit != 0 {
@@ -70,11 +132,14 @@ func (q FinancialAccountListQuery) values() url.Values {
 	if q.After != "" {
 		values.Set("after", q.After)
 	}
-	if q.Currency != "" {
-		values.Set("currency", string(q.Currency))
+	if q.UVAN != "" {
+		values.Set("uvan", q.UVAN)
 	}
 	if q.Reference != "" {
 		values.Set("reference", q.Reference)
+	}
+	if q.WithBalance {
+		values.Set("withBalance", "true")
 	}
 	return values
 }

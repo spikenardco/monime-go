@@ -1,12 +1,18 @@
 package monime
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
 
 // Response contains HTTP metadata for a completed API operation.
 type Response struct {
-	StatusCode int
-	RequestID  string
-	Header     http.Header
+	StatusCode     int
+	RequestID      string
+	Attempts       int
+	IdempotencyKey string
+	RetryAfter     time.Duration
+	Header         http.Header
 }
 
 // Page is a cursor-paginated API result.
@@ -16,28 +22,15 @@ type Page[T any] struct {
 }
 
 // PageInfo describes the cursor state returned by a list operation.
+// Next is the opaque API-owned cursor for the following page; empty means
+// the API signalled end-of-list.
 type PageInfo struct {
 	Count int
 	Next  string
 }
 
-func newResponse(statusCode int, header http.Header) Response {
-	return Response{
-		StatusCode: statusCode,
-		RequestID:  header.Get("Monime-Request-Id"),
-		Header:     header.Clone(),
-	}
-}
-
-type apiEnvelope struct {
-	Success  bool     `json:"success"`
-	Messages []string `json:"messages"`
-}
-
-type paginationEnvelope struct {
-	Count int    `json:"count"`
-	Next  string `json:"next"`
-}
+// HasNext reports whether the API returned a cursor for another page.
+func (p PageInfo) HasNext() bool { return p.Next != "" }
 
 type apiResponse struct {
 	Success  bool     `json:"success"`
@@ -52,7 +45,7 @@ type apiListResponse struct {
 	Pagination []byte   `json:"pagination"`
 }
 
-type apiDeleteResponse struct {
-	Success  bool     `json:"success"`
-	Messages []string `json:"messages"`
+type paginationEnvelope struct {
+	Count int    `json:"count"`
+	Next  string `json:"next"`
 }

@@ -6,6 +6,7 @@ import (
 	"strconv"
 )
 
+// MobileMoney is a supported mobile money provider.
 type MobileMoney struct {
 	ProviderID string             `json:"providerId"`
 	Name       string             `json:"name"`
@@ -15,23 +16,35 @@ type MobileMoney struct {
 	CreateTime string             `json:"createTime"`
 	UpdateTime string             `json:"updateTime"`
 }
+
 type MobileMoneyListQuery struct {
 	Country string
 	Limit   int
 	After   string
 }
+
 type MobileMoneyService struct{ client *Client }
 
-func (s *MobileMoneyService) List(ctx context.Context, query MobileMoneyListQuery) (Page[MobileMoney], Response, error) {
-	var items []MobileMoney
-	response, err := s.client.do(ctx, "GET", "/momos", query.values(), nil, &items)
-	return Page[MobileMoney]{Items: items}, response, err
+func (s *MobileMoneyService) List(
+	ctx context.Context,
+	query MobileMoneyListQuery,
+) (Page[MobileMoney], Response, error) {
+	return doList[MobileMoney](s.client, ctx, "/momos", query.values())
 }
+
 func (s *MobileMoneyService) Get(ctx context.Context, providerID string) (MobileMoney, Response, error) {
+	if providerID == "" {
+		return MobileMoney{}, Response{}, newValidationError("ProviderID", "must be non-empty")
+	}
 	var provider MobileMoney
-	response, err := s.client.do(ctx, "GET", "/momos/"+url.PathEscape(providerID), nil, nil, &provider)
+	response, err := s.client.do(ctx, operation{
+		method: "GET",
+		path:   "/momos/" + url.PathEscape(providerID),
+		output: &provider,
+	})
 	return provider, response, err
 }
+
 func (q MobileMoneyListQuery) values() url.Values {
 	values := url.Values{}
 	if q.Country != "" {
