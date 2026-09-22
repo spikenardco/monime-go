@@ -23,4 +23,5 @@ jobs:
           go-version: ${{ matrix.go-version }}
           check-latest: true
       - run: make check
-      # TODO: Add pinned external lint and vulnerability-scan steps after approval.
+      - run: go test ./...
+      - run: go test -race ./...

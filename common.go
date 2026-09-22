@@ -35,6 +35,19 @@ const (
 )
 
 // Channel describes the payment method used for a payment.
+//
+// Fields outside Type depend on the channel type. Bank and mobile-money
+// channels use Provider and Reference; bank uses AccountNumber; mobile-money
+// uses PhoneNumber; wallet uses WalletID; card uses Scheme and Last4.
 type Channel struct {
-	Type ChannelType `json:"type"`
+	Type          ChannelType `json:"type"`
+	Provider      *string     `json:"provider,omitempty"`
+	Reference     *string     `json:"reference,omitempty"`
+	AccountNumber *string     `json:"accountNumber,omitempty"`
+	PhoneNumber   *string     `json:"phoneNumber,omitempty"`
+	WalletID      *string     `json:"walletId,omitempty"`
+	Fingerprint   *string     `json:"fingerprint,omitempty"`
+	Scheme        *string     `json:"scheme,omitempty"`
+	Last4         *string     `json:"last4,omitempty"`
+	Metadata      Metadata    `json:"metadata,omitempty"`
 }

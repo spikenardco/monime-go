@@ -2,6 +2,15 @@
 
 > **Current migration note:** The typed SDK follows `docs/superpowers/specs/2026-09-03-idiomatic-go-sdk-design.md` and `docs/api-contract-caph-2025-08-23.md`. Earlier thin-wrapper requirements are superseded.
 
+> **Status update (2026-09-22):** The repository now contains a typed Go SDK
+> covering the 13 resource groups represented by `monimejs`. Transport,
+> pagination, typed errors, retry handling, PATCH field states, and webhook
+> event parsing are implemented. Per-request transport options remain open in
+> [issue #1](https://github.com/spikenardco/monime-go/issues/1). Webhook
+> signature verification is provisional and must not be treated as an
+> authoritative or v1-ready implementation until Monime publishes its signing
+> contract and approved test vectors.
+
 
 **Working project name:** `monime-go`  
 **Go package name:** `monime`  
@@ -9,8 +18,8 @@
 **Minimum Go version:** Go 1.24  
 **Document date:** 2026-08-03  
 **Reference SDK:** `/home/ben/Desktop/monimejs` at commit `c1bec61c6156261df184601fc76df9999d6de8c7`  
-**Current Go workspace state:** empty directory, not yet a Git repository  
-**Document status:** approved architecture and phased implementation plan; each resource requires source-linked comments and reviewed contract tests before implementation.
+**Current Go workspace state:** active Git repository with typed SDK implementation
+**Document status:** historical architecture and contract plan; implementation status appears in the status update above. Reconcile this document before v1 release.
 
 ---
 
@@ -36,7 +45,7 @@ The SDK will:
 - start with zero production dependencies;
 - treat official versioned Monime documentation as the primary contract;
 - use `monimejs` as a feature and behavior reference, not as contract authority;
-- provide webhook cryptographic verification as a required capability once the exact signing protocol and official test vectors are contract-frozen; never ship a guessed verifier.
+- provide webhook cryptographic verification only after the exact signing protocol and official test vectors are contract-frozen; provisional verification is not a v1 capability.
 
 The repository name should be `monime-go`; consumers import it as `monime`:
 
@@ -74,7 +83,7 @@ These decisions are approved. Change one only through an explicit architecture d
 17. **Logging:** library never logs. Applications decide how and where to log.
 18. **Concurrency:** clients and services are immutable after construction and safe for concurrent use; services are exposed through accessor methods rather than writable fields.
 19. **Rate limiting:** honor server `429` and `Retry-After`; no built-in proactive limiter in v1.
-20. **Webhook verification:** required before v1, but contract-gated; fail closed and remain unavailable until the official protocol is complete and verified with authoritative vectors.
+20. **Webhook verification:** contract-gated; current implementation is provisional and excluded from v1 until the official protocol is complete and verified with authoritative vectors.
 21. **Code generation:** official schemas may support drift checks or internal fixtures, but generated code must not become the public API.
 22. **Versioning:** strict Semantic Versioning, including before v1.0.
 23. **Testing:** test observable contracts, not implementation details; race detection, fuzzing, examples, and compatibility checks are release gates.
@@ -1532,9 +1541,9 @@ Use Go module retraction for broken published versions. Never rewrite or move pu
 
 Each phase ends with working, reviewable software. Commit names are recommendations, not permission to commit without repository initialization.
 
-### Phase 0: Repository foundation
+### Phase 0: Repository foundation — complete
 
-**Goal:** establish module, policy, and automated minimum-version checks without implementing API calls.
+**Goal:** establish module, policy, and automated minimum-version checks without implementing API calls. Repository and initial CI work are complete; remaining policy/tooling items stay open for later hardening.
 
 **Files:** `go.mod`, `.gitignore`, `LICENSE`, `README.md`, `Makefile`, `.golangci.yml`, `.github/workflows/ci.yml`, `doc.go`.
 
@@ -1550,7 +1559,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Suggested commit:** `chore: initialize monime Go module`
 
-### Phase 1: Core values and validation
+### Phase 1: Core values and validation — substantially complete
 
 **Goal:** implement stable foundational types without networking.
 
@@ -1764,7 +1773,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 
 **Suggested commit:** `feat: add receipt and USSD OTP services`
 
-### Phase 12: Webhook CRUD, event parsing, and verification
+### Phase 12: Webhook CRUD and event parsing — provisional verification only
 
 **Goal:** safely model webhook configuration, parse inbound events, and ship contract-proven signature verification.
 
@@ -1780,6 +1789,7 @@ Each phase ends with working, reviewable software. Commit names are recommendati
 - [ ] Preserve raw `Data` bytes.
 - [ ] Document deduplication by event ID.
 - [ ] Obtain and freeze the exact `Monime-Signature` protocol and official/maintainer-approved vectors.
+- [ ] Replace or remove current provisional signature verification before v1.
 - [ ] Stop this phase if header grammar, canonical signed bytes, algorithm, encoding, or replay tolerance remains unknown; never guess.
 - [ ] Write positive and negative signature-vector tests before implementation.
 - [ ] Implement immutable multi-key `WebhookVerifier` for key rotation.
@@ -1985,6 +1995,8 @@ The SDK is v1-ready only when:
 
 ## 27. Immediate Next Action
 
-Begin Phase 0 only. Do not scaffold all resource files. Initialize the repository and Go 1.24 module, add foundational policy and CI, verify the empty package, then review that small diff before starting core types.
-
-The smallest correct first deliverable is a clean, documented, testable Go 1.24 module named `github.com/spikenardco/monime-go` with no runtime functionality and no production dependencies.
+Resolve issue #1 by adding per-request timeout, retry, cancellation, and
+caller-supplied idempotency-key options. Keep request options small and
+endpoint-independent. Before v1, replace or remove provisional webhook
+signature verification after Monime publishes authoritative protocol details
+and test vectors.
