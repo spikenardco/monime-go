@@ -2,7 +2,9 @@ package monime
 
 import (
 	"context"
+	"net/http"
 	"net/url"
+	"time"
 )
 
 // ReceiptStatus is the redemption progress of a receipt.
@@ -19,13 +21,14 @@ type Receipt struct {
 	Status       ReceiptStatus        `json:"status"`
 	OrderName    *string              `json:"orderName,omitempty"`
 	OrderNumber  string               `json:"orderNumber"`
-	OrderAmount  *Amount              `json:"orderAmount,omitempty"`
-	CreateTime   string               `json:"createTime"`
-	UpdateTime   *string              `json:"updateTime,omitempty"`
+	OrderAmount  Amount               `json:"orderAmount"`
+	CreateTime   time.Time            `json:"createTime"`
+	UpdateTime   time.Time            `json:"updateTime"`
 	Entitlements []ReceiptEntitlement `json:"entitlements,omitempty"`
 	Metadata     Metadata             `json:"metadata,omitempty"`
 }
 
+// ReceiptEntitlement is a right granted by a receipt that can be redeemed.
 type ReceiptEntitlement struct {
 	Key       string  `json:"key"`
 	Name      *string `json:"name,omitempty"`
@@ -35,64 +38,69 @@ type ReceiptEntitlement struct {
 	Exhausted bool    `json:"exhausted"`
 }
 
+// RedeemReceiptInput selects the receipt entitlements to redeem.
 type RedeemReceiptInput struct {
 	RedeemAll    *bool                    `json:"redeemAll,omitempty"`
 	Entitlements []RedeemEntitlementInput `json:"entitlements,omitempty"`
 	Metadata     Metadata                 `json:"metadata,omitempty"`
 }
 
+// RedeemEntitlementInput selects an entitlement and number of units.
 type RedeemEntitlementInput struct {
 	Key   string `json:"key"`
 	Units *int64 `json:"units,omitempty"`
 }
 
+// RedeemReceiptResult is the outcome of a receipt redemption.
 type RedeemReceiptResult struct {
 	Redeem  bool    `json:"redeem"`
 	Receipt Receipt `json:"receipt"`
 }
 
-type ReceiptService struct{ client *Client }
-
-func (s *ReceiptService) Get(ctx context.Context, orderNumber string) (Receipt, Response, error) {
+// GetReceipt returns a receipt by order number.
+func (c *Client) GetReceipt(ctx context.Context, orderNumber string) (*Receipt, *Response, error) {
 	if orderNumber == "" {
-		return Receipt{}, Response{}, newValidationError("OrderNumber", "must be non-empty")
+		return nil, nil, newValidationError("OrderNumber", "must be non-empty")
 	}
-	var result Receipt
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
+	var receipt Receipt
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
 		path:   "/receipts/" + url.PathEscape(orderNumber),
-		output: &result,
+		output: &receipt,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &receipt, &response, nil
 }
 
-func (s *ReceiptService) Redeem(
+// RedeemReceipt atomically redeems selected or all entitlements from a receipt.
+func (c *Client) RedeemReceipt(
 	ctx context.Context,
+	idempotencyKey string,
 	orderNumber string,
 	input RedeemReceiptInput,
-) (RedeemReceiptResult, Response, error) {
+) (*RedeemReceiptResult, *Response, error) {
 	if orderNumber == "" {
-		return RedeemReceiptResult{}, Response{}, newValidationError("OrderNumber", "must be non-empty")
+		return nil, nil, newValidationError("OrderNumber", "must be non-empty")
 	}
 	redeemAll := input.RedeemAll != nil && *input.RedeemAll
 	if !redeemAll && len(input.Entitlements) == 0 {
-		return RedeemReceiptResult{}, Response{}, newValidationError(
-			"RedeemReceiptInput",
-			"must redeem all or select entitlements",
-		)
+		return nil, nil, newValidationError("Input", "must redeem all or select entitlements")
 	}
 	if redeemAll && len(input.Entitlements) > 0 {
-		return RedeemReceiptResult{}, Response{}, newValidationError(
-			"RedeemReceiptInput",
-			"must not combine redeem-all with selected entitlements",
-		)
+		return nil, nil, newValidationError("Input", "must not combine redeem-all with selected entitlements")
 	}
 	var result RedeemReceiptResult
-	response, err := s.client.do(ctx, operation{
-		method: "POST",
-		path:   "/receipts/" + url.PathEscape(orderNumber) + "/redeem",
-		input:  input,
-		output: &result,
+	response, err := c.do(ctx, operation{
+		method:         http.MethodPost,
+		path:           "/receipts/" + url.PathEscape(orderNumber) + "/redeem",
+		input:          input,
+		output:         &result,
+		idempotencyKey: idempotencyKey,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &result, &response, nil
 }

@@ -2,8 +2,10 @@ package monime
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // USSDOTPStatus is the state of a USSD OTP session.
@@ -22,11 +24,12 @@ type USSDOTP struct {
 	DialCode              string        `json:"dialCode"`
 	AuthorizedPhoneNumber string        `json:"authorizedPhoneNumber"`
 	VerificationMessage   *string       `json:"verificationMessage,omitempty"`
-	CreateTime            string        `json:"createTime"`
-	ExpireTime            string        `json:"expireTime"`
+	CreateTime            time.Time     `json:"createTime"`
+	ExpireTime            time.Time     `json:"expireTime"`
 	Metadata              Metadata      `json:"metadata,omitempty"`
 }
 
+// CreateUSSDOTPInput contains fields accepted when creating a USSD OTP session.
 type CreateUSSDOTPInput struct {
 	AuthorizedPhoneNumber string   `json:"authorizedPhoneNumber"`
 	VerificationMessage   string   `json:"verificationMessage,omitempty"`
@@ -34,69 +37,84 @@ type CreateUSSDOTPInput struct {
 	Metadata              Metadata `json:"metadata,omitempty"`
 }
 
-type USSDOTPListQuery struct {
-	Limit                 int
-	After                 string
-	Status                USSDOTPStatus
-	AuthorizedPhoneNumber string
+// USSDOTPListParams controls USSD OTP pagination.
+type USSDOTPListParams struct {
+	Limit int
+	After string
 }
 
-type USSDOTPService struct{ client *Client }
-
-func (s *USSDOTPService) Create(ctx context.Context, input CreateUSSDOTPInput) (USSDOTP, Response, error) {
+// CreateUSSDOTP creates a phone-bound USSD OTP session.
+func (c *Client) CreateUSSDOTP(
+	ctx context.Context,
+	idempotencyKey string,
+	input CreateUSSDOTPInput,
+) (*USSDOTP, *Response, error) {
 	if input.AuthorizedPhoneNumber == "" {
-		return USSDOTP{}, Response{}, newValidationError("AuthorizedPhoneNumber", "must be non-empty")
+		return nil, nil, newValidationError("AuthorizedPhoneNumber", "must be non-empty")
 	}
-	var result USSDOTP
-	response, err := s.client.do(ctx, operation{
-		method: "POST",
-		path:   "/ussd-otps",
-		input:  input,
-		output: &result,
+	var otp USSDOTP
+	response, err := c.do(ctx, operation{
+		method:         http.MethodPost,
+		path:           "/ussd-otps",
+		input:          input,
+		output:         &otp,
+		idempotencyKey: idempotencyKey,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &otp, &response, nil
 }
 
-func (s *USSDOTPService) Get(ctx context.Context, id string) (USSDOTP, Response, error) {
+// GetUSSDOTP returns a USSD OTP session by ID.
+func (c *Client) GetUSSDOTP(ctx context.Context, id string) (*USSDOTP, *Response, error) {
 	if id == "" {
-		return USSDOTP{}, Response{}, newValidationError("ID", "must be non-empty")
+		return nil, nil, newValidationError("ID", "must be non-empty")
 	}
-	var result USSDOTP
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
+	var otp USSDOTP
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
 		path:   "/ussd-otps/" + url.PathEscape(id),
-		output: &result,
+		output: &otp,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &otp, &response, nil
 }
 
-func (s *USSDOTPService) List(ctx context.Context, query USSDOTPListQuery) (Page[USSDOTP], Response, error) {
-	return doList[USSDOTP](s.client, ctx, "/ussd-otps", query.values())
+// ListUSSDOTPs returns a page of USSD OTP sessions.
+func (c *Client) ListUSSDOTPs(
+	ctx context.Context,
+	params USSDOTPListParams,
+) (*Page[USSDOTP], *Response, error) {
+	page, response, err := doList[USSDOTP](c, ctx, "/ussd-otps", params.values())
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &page, &response, nil
 }
 
-func (s *USSDOTPService) Delete(ctx context.Context, id string) (Response, error) {
+// DeleteUSSDOTP deletes a USSD OTP session.
+func (c *Client) DeleteUSSDOTP(ctx context.Context, id string) (*Response, error) {
 	if id == "" {
-		return Response{}, newValidationError("ID", "must be non-empty")
+		return nil, newValidationError("ID", "must be non-empty")
 	}
-	return s.client.do(ctx, operation{
-		method: "DELETE",
-		path:   "/ussd-otps/" + url.PathEscape(id),
+	response, err := c.do(ctx, operation{
+		method:  http.MethodDelete,
+		path:    "/ussd-otps/" + url.PathEscape(id),
+		emptyOK: true,
 	})
+	return responseOrNil(response), err
 }
 
-func (q USSDOTPListQuery) values() url.Values {
+func (p USSDOTPListParams) values() url.Values {
 	values := url.Values{}
-	if q.Limit != 0 {
-		values.Set("limit", strconv.Itoa(q.Limit))
+	if p.Limit != 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
 	}
-	if q.After != "" {
-		values.Set("after", q.After)
-	}
-	if q.Status != "" {
-		values.Set("status", string(q.Status))
-	}
-	if q.AuthorizedPhoneNumber != "" {
-		values.Set("authorizedPhoneNumber", q.AuthorizedPhoneNumber)
+	if p.After != "" {
+		values.Set("after", p.After)
 	}
 	return values
 }
