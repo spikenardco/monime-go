@@ -2,6 +2,7 @@ package monime
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 )
 
@@ -14,11 +15,13 @@ const (
 	ProviderKYCTypeWallet ProviderKYCProviderType = "wallet"
 )
 
+// ProviderKYC contains provider account-holder information.
 type ProviderKYC struct {
 	Account  ProviderKYCAccount  `json:"account"`
 	Provider ProviderKYCProvider `json:"provider"`
 }
 
+// ProviderKYCAccount describes the account verified by the provider.
 type ProviderKYCAccount struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
@@ -26,35 +29,35 @@ type ProviderKYCAccount struct {
 	Metadata   Metadata `json:"metadata,omitempty"`
 }
 
+// ProviderKYCProvider identifies the provider that supplied KYC data.
 type ProviderKYCProvider struct {
 	ID   string                  `json:"id"`
 	Type ProviderKYCProviderType `json:"type"`
 	Name string                  `json:"name"`
 }
 
-type ProviderKYCGetQuery struct{ AccountID string }
-
-type ProviderKYCService struct{ client *Client }
-
-func (s *ProviderKYCService) Get(
+// GetProviderKYC returns KYC data for an account held by a provider.
+func (c *Client) GetProviderKYC(
 	ctx context.Context,
 	providerID string,
-	query ProviderKYCGetQuery,
-) (ProviderKYC, Response, error) {
+	accountID string,
+) (*ProviderKYC, *Response, error) {
 	if providerID == "" {
-		return ProviderKYC{}, Response{}, newValidationError("ProviderID", "must be non-empty")
+		return nil, nil, newValidationError("ProviderID", "must be non-empty")
 	}
-	if query.AccountID == "" {
-		return ProviderKYC{}, Response{}, newValidationError("AccountID", "must be non-empty")
+	if accountID == "" {
+		return nil, nil, newValidationError("AccountID", "must be non-empty")
 	}
 	var result ProviderKYC
-	values := url.Values{}
-	values.Set("accountId", query.AccountID)
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
+	query := url.Values{"accountId": {accountID}}
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
 		path:   "/provider-kyc/" + url.PathEscape(providerID),
-		query:  values,
+		query:  query,
 		output: &result,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &result, &response, nil
 }

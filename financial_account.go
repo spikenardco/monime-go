@@ -2,8 +2,10 @@ package monime
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // FinancialAccount is a wallet that holds and tracks funds.
@@ -15,15 +17,17 @@ type FinancialAccount struct {
 	Reference   *string                  `json:"reference,omitempty"`
 	Description *string                  `json:"description,omitempty"`
 	Balance     *FinancialAccountBalance `json:"balance,omitempty"`
-	CreateTime  string                   `json:"createTime"`
-	UpdateTime  *string                  `json:"updateTime,omitempty"`
+	CreateTime  time.Time                `json:"createTime"`
+	UpdateTime  *time.Time               `json:"updateTime,omitempty"`
 	Metadata    Metadata                 `json:"metadata,omitempty"`
 }
 
+// FinancialAccountBalance contains the account's available funds.
 type FinancialAccountBalance struct {
 	Available Amount `json:"available"`
 }
 
+// CreateFinancialAccountInput contains fields accepted when creating an account.
 type CreateFinancialAccountInput struct {
 	Name        string   `json:"name"`
 	Currency    Currency `json:"currency"`
@@ -32,6 +36,7 @@ type CreateFinancialAccountInput struct {
 	Metadata    Metadata `json:"metadata,omitempty"`
 }
 
+// UpdateFinancialAccountInput contains mutable account fields.
 type UpdateFinancialAccountInput struct {
 	Name        Field[string]   `json:"name,omitzero"`
 	Reference   Field[string]   `json:"reference,omitzero"`
@@ -39,11 +44,13 @@ type UpdateFinancialAccountInput struct {
 	Metadata    Field[Metadata] `json:"metadata,omitzero"`
 }
 
-type FinancialAccountGetQuery struct {
+// FinancialAccountGetParams controls optional account response fields.
+type FinancialAccountGetParams struct {
 	WithBalance bool
 }
 
-type FinancialAccountListQuery struct {
+// FinancialAccountListParams filters an account list request.
+type FinancialAccountListParams struct {
 	Limit       int
 	After       string
 	UVAN        string
@@ -51,94 +58,114 @@ type FinancialAccountListQuery struct {
 	WithBalance bool
 }
 
-type FinancialAccountService struct{ client *Client }
-
-func (s *FinancialAccountService) Create(
+// CreateFinancialAccount creates a financial account.
+func (c *Client) CreateFinancialAccount(
 	ctx context.Context,
+	idempotencyKey string,
 	input CreateFinancialAccountInput,
-) (FinancialAccount, Response, error) {
+) (*FinancialAccount, *Response, error) {
 	if input.Name == "" {
-		return FinancialAccount{}, Response{}, newValidationError("Name", "must be non-empty")
+		return nil, nil, newValidationError("Name", "must be non-empty")
 	}
 	if input.Currency == "" {
-		return FinancialAccount{}, Response{}, newValidationError("Currency", "must be non-empty")
+		return nil, nil, newValidationError("Currency", "must be non-empty")
 	}
-	var result FinancialAccount
-	response, err := s.client.do(ctx, operation{
-		method: "POST",
-		path:   "/financial-accounts",
-		input:  input,
-		output: &result,
+	var account FinancialAccount
+	response, err := c.do(ctx, operation{
+		method:         http.MethodPost,
+		path:           "/financial-accounts",
+		input:          input,
+		output:         &account,
+		idempotencyKey: idempotencyKey,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &account, &response, nil
 }
 
-func (s *FinancialAccountService) Get(
+// GetFinancialAccount returns a financial account by ID.
+func (c *Client) GetFinancialAccount(
 	ctx context.Context,
 	id string,
-	query FinancialAccountGetQuery,
-) (FinancialAccount, Response, error) {
+	params FinancialAccountGetParams,
+) (*FinancialAccount, *Response, error) {
 	if id == "" {
-		return FinancialAccount{}, Response{}, newValidationError("ID", "must be non-empty")
+		return nil, nil, newValidationError("ID", "must be non-empty")
 	}
-	var result FinancialAccount
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
+	var account FinancialAccount
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
 		path:   "/financial-accounts/" + url.PathEscape(id),
-		query:  query.values(),
-		output: &result,
+		query:  params.values(),
+		output: &account,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &account, &response, nil
 }
 
-func (s *FinancialAccountService) List(
+// ListFinancialAccounts returns financial accounts matching params.
+func (c *Client) ListFinancialAccounts(
 	ctx context.Context,
-	query FinancialAccountListQuery,
-) (Page[FinancialAccount], Response, error) {
-	return doList[FinancialAccount](s.client, ctx, "/financial-accounts", query.values())
+	params FinancialAccountListParams,
+) (*Page[FinancialAccount], *Response, error) {
+	page, response, err := doList[FinancialAccount](c, ctx, "/financial-accounts", params.values())
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &page, &response, nil
 }
 
-func (s *FinancialAccountService) Update(
+// UpdateFinancialAccount updates mutable fields on a financial account.
+func (c *Client) UpdateFinancialAccount(
 	ctx context.Context,
 	id string,
 	input UpdateFinancialAccountInput,
-) (FinancialAccount, Response, error) {
+) (*FinancialAccount, *Response, error) {
 	if id == "" {
-		return FinancialAccount{}, Response{}, newValidationError("ID", "must be non-empty")
+		return nil, nil, newValidationError("ID", "must be non-empty")
 	}
-	var result FinancialAccount
-	response, err := s.client.do(ctx, operation{
-		method: "PATCH",
+	if !input.Name.IsSet() && !input.Reference.IsSet() && !input.Description.IsSet() && !input.Metadata.IsSet() {
+		return nil, nil, newValidationError("Input", "must contain at least one field")
+	}
+	var account FinancialAccount
+	response, err := c.do(ctx, operation{
+		method: http.MethodPatch,
 		path:   "/financial-accounts/" + url.PathEscape(id),
 		input:  input,
-		output: &result,
+		output: &account,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &account, &response, nil
 }
 
-func (q FinancialAccountGetQuery) values() url.Values {
+func (p FinancialAccountGetParams) values() url.Values {
 	values := url.Values{}
-	if q.WithBalance {
+	if p.WithBalance {
 		values.Set("withBalance", "true")
 	}
 	return values
 }
 
-func (q FinancialAccountListQuery) values() url.Values {
+func (p FinancialAccountListParams) values() url.Values {
 	values := url.Values{}
-	if q.Limit != 0 {
-		values.Set("limit", strconv.Itoa(q.Limit))
+	if p.Limit != 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
 	}
-	if q.After != "" {
-		values.Set("after", q.After)
+	if p.After != "" {
+		values.Set("after", p.After)
 	}
-	if q.UVAN != "" {
-		values.Set("uvan", q.UVAN)
+	if p.UVAN != "" {
+		values.Set("uvan", p.UVAN)
 	}
-	if q.Reference != "" {
-		values.Set("reference", q.Reference)
+	if p.Reference != "" {
+		values.Set("reference", p.Reference)
 	}
-	if q.WithBalance {
+	if p.WithBalance {
 		values.Set("withBalance", "true")
 	}
 	return values

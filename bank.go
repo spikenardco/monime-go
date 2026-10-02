@@ -2,26 +2,42 @@ package monime
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
+// ProviderStatus reports whether a financial provider is active.
 type ProviderStatus struct {
 	Active bool `json:"active"`
 }
 
-type ProviderFeature struct {
-	CanPayTo         bool     `json:"canPayTo,omitempty"`
-	CanPayFrom       bool     `json:"canPayFrom,omitempty"`
-	CanVerifyAccount bool     `json:"canVerifyAccount,omitempty"`
-	Schemes          []string `json:"schemes,omitempty"`
+// PayoutFeature describes a provider's payout support.
+type PayoutFeature struct {
+	CanPayTo bool     `json:"canPayTo"`
+	Schemes  []string `json:"schemes,omitempty"`
+	Metadata Metadata `json:"metadata,omitempty"`
+}
+
+// PaymentFeature describes a provider's payment support.
+type PaymentFeature struct {
+	CanPayFrom bool     `json:"canPayFrom"`
+	Schemes    []string `json:"schemes,omitempty"`
+	Metadata   Metadata `json:"metadata,omitempty"`
+}
+
+// KYCVerificationFeature describes a provider's account-verification support.
+type KYCVerificationFeature struct {
+	CanVerifyAccount bool     `json:"canVerifyAccount"`
 	Metadata         Metadata `json:"metadata,omitempty"`
 }
 
+// ProviderFeatureSet describes the Monime operations a provider supports.
 type ProviderFeatureSet struct {
-	Payout          ProviderFeature `json:"payout"`
-	Payment         ProviderFeature `json:"payment"`
-	KYCVerification ProviderFeature `json:"kycVerification"`
+	Payout          PayoutFeature          `json:"payout"`
+	Payment         PaymentFeature         `json:"payment"`
+	KYCVerification KYCVerificationFeature `json:"kycVerification"`
 }
 
 // Bank is a supported bank provider.
@@ -31,45 +47,53 @@ type Bank struct {
 	Country    string             `json:"country"`
 	Status     ProviderStatus     `json:"status"`
 	FeatureSet ProviderFeatureSet `json:"featureSet"`
-	CreateTime string             `json:"createTime"`
-	UpdateTime string             `json:"updateTime"`
+	CreateTime time.Time          `json:"createTime"`
+	UpdateTime *time.Time         `json:"updateTime,omitempty"`
 }
 
-type BankListQuery struct {
+// BankListParams filters a bank list request. Country is required.
+type BankListParams struct {
 	Country string
 	Limit   int
 	After   string
 }
 
-type BankService struct{ client *Client }
-
-func (s *BankService) List(ctx context.Context, query BankListQuery) (Page[Bank], Response, error) {
-	return doList[Bank](s.client, ctx, "/banks", query.values())
+// ListBanks returns banks available in a country.
+func (c *Client) ListBanks(ctx context.Context, params BankListParams) (*Page[Bank], *Response, error) {
+	if params.Country == "" {
+		return nil, nil, newValidationError("Country", "must be non-empty")
+	}
+	page, response, err := doList[Bank](c, ctx, "/banks", params.values())
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &page, &response, nil
 }
 
-func (s *BankService) Get(ctx context.Context, providerID string) (Bank, Response, error) {
+// GetBank returns a bank by provider ID.
+func (c *Client) GetBank(ctx context.Context, providerID string) (*Bank, *Response, error) {
 	if providerID == "" {
-		return Bank{}, Response{}, newValidationError("ProviderID", "must be non-empty")
+		return nil, nil, newValidationError("ProviderID", "must be non-empty")
 	}
 	var bank Bank
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
 		path:   "/banks/" + url.PathEscape(providerID),
 		output: &bank,
 	})
-	return bank, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &bank, &response, nil
 }
 
-func (q BankListQuery) values() url.Values {
-	values := url.Values{}
-	if q.Country != "" {
-		values.Set("country", q.Country)
+func (p BankListParams) values() url.Values {
+	values := url.Values{"country": {p.Country}}
+	if p.Limit != 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
 	}
-	if q.Limit != 0 {
-		values.Set("limit", strconv.Itoa(q.Limit))
-	}
-	if q.After != "" {
-		values.Set("after", q.After)
+	if p.After != "" {
+		values.Set("after", p.After)
 	}
 	return values
 }

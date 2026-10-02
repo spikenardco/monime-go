@@ -2,8 +2,10 @@ package monime
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // FinancialTransactionType is the ledger direction of a transaction.
@@ -19,7 +21,7 @@ type FinancialTransaction struct {
 	ID                  string                      `json:"id"`
 	Type                FinancialTransactionType    `json:"type"`
 	Amount              Amount                      `json:"amount"`
-	Timestamp           string                      `json:"timestamp"`
+	Timestamp           time.Time                   `json:"timestamp"`
 	Reference           *string                     `json:"reference,omitempty"`
 	FinancialAccount    FinancialTransactionAccount `json:"financialAccount"`
 	OriginatingReversal *OriginatingReversal        `json:"originatingReversal,omitempty"`
@@ -28,23 +30,30 @@ type FinancialTransaction struct {
 	Metadata            Metadata                    `json:"metadata,omitempty"`
 }
 
+// FinancialTransactionAccount identifies the affected account and optional balance snapshot.
 type FinancialTransactionAccount struct {
-	ID      string `json:"id"`
-	Balance struct {
-		After Amount `json:"after"`
-	} `json:"balance"`
+	ID      string                       `json:"id"`
+	Balance *FinancialTransactionBalance `json:"balance,omitempty"`
 }
 
+// FinancialTransactionBalance is the account balance after a transaction.
+type FinancialTransactionBalance struct {
+	After Amount `json:"after"`
+}
+
+// OriginatingReversal links a reversal to the transaction it reversed.
 type OriginatingReversal struct {
 	OriginTxnID  string `json:"originTxnId"`
 	OriginTxnRef string `json:"originTxnRef"`
 }
 
+// OriginatingFee identifies the fee that produced a transaction.
 type OriginatingFee struct {
 	Code string `json:"code"`
 }
 
-type FinancialTransactionListQuery struct {
+// FinancialTransactionListParams filters a transaction list request.
+type FinancialTransactionListParams struct {
 	Limit              int
 	After              string
 	FinancialAccountID string
@@ -52,44 +61,54 @@ type FinancialTransactionListQuery struct {
 	Reference          string
 }
 
-type FinancialTransactionService struct{ client *Client }
-
-func (s *FinancialTransactionService) Get(ctx context.Context, id string) (FinancialTransaction, Response, error) {
-	if id == "" {
-		return FinancialTransaction{}, Response{}, newValidationError("ID", "must be non-empty")
-	}
-	var result FinancialTransaction
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
-		path:   "/financial-transactions/" + url.PathEscape(id),
-		output: &result,
-	})
-	return result, response, err
-}
-
-func (s *FinancialTransactionService) List(
+// GetFinancialTransaction returns a financial transaction by ID.
+func (c *Client) GetFinancialTransaction(
 	ctx context.Context,
-	query FinancialTransactionListQuery,
-) (Page[FinancialTransaction], Response, error) {
-	return doList[FinancialTransaction](s.client, ctx, "/financial-transactions", query.values())
+	id string,
+) (*FinancialTransaction, *Response, error) {
+	if id == "" {
+		return nil, nil, newValidationError("ID", "must be non-empty")
+	}
+	var transaction FinancialTransaction
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
+		path:   "/financial-transactions/" + url.PathEscape(id),
+		output: &transaction,
+	})
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &transaction, &response, nil
 }
 
-func (q FinancialTransactionListQuery) values() url.Values {
+// ListFinancialTransactions returns transactions matching params.
+func (c *Client) ListFinancialTransactions(
+	ctx context.Context,
+	params FinancialTransactionListParams,
+) (*Page[FinancialTransaction], *Response, error) {
+	page, response, err := doList[FinancialTransaction](c, ctx, "/financial-transactions", params.values())
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &page, &response, nil
+}
+
+func (p FinancialTransactionListParams) values() url.Values {
 	values := url.Values{}
-	if q.Limit != 0 {
-		values.Set("limit", strconv.Itoa(q.Limit))
+	if p.Limit != 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
 	}
-	if q.After != "" {
-		values.Set("after", q.After)
+	if p.After != "" {
+		values.Set("after", p.After)
 	}
-	if q.FinancialAccountID != "" {
-		values.Set("financialAccountId", q.FinancialAccountID)
+	if p.FinancialAccountID != "" {
+		values.Set("financialAccountId", p.FinancialAccountID)
 	}
-	if q.Type != "" {
-		values.Set("type", string(q.Type))
+	if p.Type != "" {
+		values.Set("type", string(p.Type))
 	}
-	if q.Reference != "" {
-		values.Set("reference", q.Reference)
+	if p.Reference != "" {
+		values.Set("reference", p.Reference)
 	}
 	return values
 }

@@ -2,59 +2,72 @@ package monime
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
-// MobileMoney is a supported mobile money provider.
+// MobileMoney is a supported mobile-money provider.
 type MobileMoney struct {
 	ProviderID string             `json:"providerId"`
 	Name       string             `json:"name"`
 	Country    string             `json:"country"`
 	Status     ProviderStatus     `json:"status"`
 	FeatureSet ProviderFeatureSet `json:"featureSet"`
-	CreateTime string             `json:"createTime"`
-	UpdateTime string             `json:"updateTime"`
+	CreateTime time.Time          `json:"createTime"`
+	UpdateTime *time.Time         `json:"updateTime,omitempty"`
 }
 
-type MobileMoneyListQuery struct {
+// MobileMoneyListParams filters a mobile-money provider list request.
+type MobileMoneyListParams struct {
 	Country string
 	Limit   int
 	After   string
 }
 
-type MobileMoneyService struct{ client *Client }
-
-func (s *MobileMoneyService) List(
+// ListMobileMoneyProviders returns mobile-money providers in a country.
+func (c *Client) ListMobileMoneyProviders(
 	ctx context.Context,
-	query MobileMoneyListQuery,
-) (Page[MobileMoney], Response, error) {
-	return doList[MobileMoney](s.client, ctx, "/momos", query.values())
+	params MobileMoneyListParams,
+) (*Page[MobileMoney], *Response, error) {
+	if params.Country == "" {
+		return nil, nil, newValidationError("Country", "must be non-empty")
+	}
+	page, response, err := doList[MobileMoney](c, ctx, "/momos", params.values())
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &page, &response, nil
 }
 
-func (s *MobileMoneyService) Get(ctx context.Context, providerID string) (MobileMoney, Response, error) {
+// GetMobileMoneyProvider returns a mobile-money provider by provider ID.
+func (c *Client) GetMobileMoneyProvider(
+	ctx context.Context,
+	providerID string,
+) (*MobileMoney, *Response, error) {
 	if providerID == "" {
-		return MobileMoney{}, Response{}, newValidationError("ProviderID", "must be non-empty")
+		return nil, nil, newValidationError("ProviderID", "must be non-empty")
 	}
 	var provider MobileMoney
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
 		path:   "/momos/" + url.PathEscape(providerID),
 		output: &provider,
 	})
-	return provider, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &provider, &response, nil
 }
 
-func (q MobileMoneyListQuery) values() url.Values {
-	values := url.Values{}
-	if q.Country != "" {
-		values.Set("country", q.Country)
+func (p MobileMoneyListParams) values() url.Values {
+	values := url.Values{"country": {p.Country}}
+	if p.Limit != 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
 	}
-	if q.Limit != 0 {
-		values.Set("limit", strconv.Itoa(q.Limit))
-	}
-	if q.After != "" {
-		values.Set("after", q.After)
+	if p.After != "" {
+		values.Set("after", p.After)
 	}
 	return values
 }
