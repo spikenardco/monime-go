@@ -1,7 +1,7 @@
 package monime
 
 import (
-	"net/http"
+	"encoding/json"
 	"time"
 )
 
@@ -12,7 +12,6 @@ type Response struct {
 	Attempts       int
 	IdempotencyKey string
 	RetryAfter     time.Duration
-	Header         http.Header
 }
 
 // Page is a cursor-paginated API result.
@@ -22,8 +21,6 @@ type Page[T any] struct {
 }
 
 // PageInfo describes the cursor state returned by a list operation.
-// Next is the opaque API-owned cursor for the following page; empty means
-// the API signalled end-of-list.
 type PageInfo struct {
 	Count int
 	Next  string
@@ -33,16 +30,16 @@ type PageInfo struct {
 func (p PageInfo) HasNext() bool { return p.Next != "" }
 
 type apiResponse struct {
-	Success  bool     `json:"success"`
-	Messages []string `json:"messages"`
-	Result   []byte   `json:"result"`
+	Success  bool            `json:"success"`
+	Messages []string        `json:"messages"`
+	Result   json.RawMessage `json:"result"`
 }
 
 type apiListResponse struct {
-	Success    bool     `json:"success"`
-	Messages   []string `json:"messages"`
-	Result     []byte   `json:"result"`
-	Pagination []byte   `json:"pagination"`
+	Success    bool                `json:"success"`
+	Messages   []string            `json:"messages"`
+	Result     json.RawMessage     `json:"result"`
+	Pagination *paginationEnvelope `json:"pagination"`
 }
 
 type paginationEnvelope struct {

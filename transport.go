@@ -3,14 +3,14 @@ package monime
 import (
 	"bytes"
 	"context"
-	crand "crypto/rand"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math"
-	mrand "math/rand/v2"
+	mathrand "math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -18,162 +18,61 @@ import (
 	"time"
 )
 
-const (
-	maxResponseBody = 10 << 20
-	maxRetryJitter  = 500 * time.Millisecond
-)
+const maxResponseBody = 10 << 20
 
-// operation is one typed API call.
 type operation struct {
-	method string
-	path   string
-	query  url.Values
-	input  any
-	output any
-	list   bool
+	method         string
+	path           string
+	query          url.Values
+	input          any
+	output         any
+	idempotencyKey string
+	list           bool
+	emptyOK        bool
 }
 
-func validateConfig(config Config) error {
-	if config.SpaceID == "" {
-		return newValidationError("SpaceID", "must be non-empty")
-	}
-	if config.AccessToken == "" {
-		return newValidationError("AccessToken", "must be non-empty")
-	}
-	if config.APIVersion == "" {
-		return newValidationError("APIVersion", "must be non-empty")
-	}
-	if config.Timeout < 0 {
-		return newValidationError("Timeout", "must be non-negative")
-	}
-	if config.Retries < 0 {
-		return newValidationError("Retries", "must be non-negative")
-	}
-	if config.RetryDelay < 0 {
-		return newValidationError("RetryDelay", "must be non-negative")
-	}
-	if math.IsNaN(config.RetryBackoff) ||
-		math.IsInf(config.RetryBackoff, 0) ||
-		config.RetryBackoff < 0 {
-		return newValidationError("RetryBackoff", "must be a finite non-negative number")
-	}
-
-	baseURL, err := url.Parse(config.BaseURL)
-	if err != nil || !isAPIURL(baseURL) {
-		return newValidationError("BaseURL", "must be a valid HTTPS URL")
-	}
-	return nil
-}
-
-func isAPIURL(rawURL *url.URL) bool {
-	httpsOnly := rawURL.Scheme == "https"
-	hasHost := rawURL.Host != ""
-	noUser := rawURL.User == nil
-	noQuery := rawURL.RawQuery == ""
-	noFragment := rawURL.Fragment == ""
-	return httpsOnly && hasHost && noUser && noQuery && noFragment
-}
-
-// sameHostRedirectPolicy prevents credentials leaking to another host.
-func sameHostRedirectPolicy(req *http.Request, via []*http.Request) error {
-	if len(via) == 0 {
-		return nil
-	}
-	if req.URL.Host != via[0].URL.Host {
-		return fmt.Errorf("monime: refusing cross-host redirect to %s", req.URL.Host)
-	}
-	if len(via) >= 10 {
-		return fmt.Errorf("monime: too many redirects")
-	}
-	return nil
-}
-
-func (c *Client) buildURL(path string, query url.Values) *url.URL {
-	requestURL := *c.baseURL
-	baseEscapedPath := requestURL.EscapedPath()
-	escapedPath := "/v1" + path
-	decodedPath, _ := url.PathUnescape(escapedPath)
-	requestURL.Path += decodedPath
-	requestURL.RawPath = baseEscapedPath + escapedPath
-	requestURL.RawQuery = query.Encode()
-	return &requestURL
-}
-
-func marshalBody(body any) ([]byte, error) {
-	if body == nil {
-		return nil, nil
-	}
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("monime: encode request body: %w", err)
-	}
-	return encoded, nil
-}
-
-func (c *Client) requestHeaders(method string, hasBody bool) (http.Header, error) {
-	headers := http.Header{
-		"Authorization":   {"Bearer " + c.accessToken},
-		"Monime-Space-Id": {c.spaceID},
-		"Monime-Version":  {c.apiVersion},
-		"Accept":          {"application/json"},
-		"User-Agent":      {c.userAgent},
-	}
-	if hasBody {
-		headers.Set("Content-Type", "application/json")
-	}
-	if method == http.MethodPost {
-		key, err := newUUIDv4()
-		if err != nil {
-			return nil, fmt.Errorf("monime: generate idempotency key: %w", err)
-		}
-		headers.Set("Idempotency-Key", key)
-	}
-	return headers, nil
-}
-
-// do executes a single-resource or delete operation.
 func (c *Client) do(ctx context.Context, op operation) (Response, error) {
-	resp, _, err := c.doRequest(ctx, op)
-	return resp, err
+	response, _, err := c.doRequest(ctx, op)
+	return response, err
 }
 
-// doList executes a list operation and decodes the {result, pagination} envelope.
 func doList[T any](
 	c *Client,
 	ctx context.Context,
 	path string,
 	query url.Values,
 ) (Page[T], Response, error) {
-	var items []T
-	op := operation{
+	items := []T{}
+	response, pagination, err := c.doRequest(ctx, operation{
 		method: http.MethodGet,
 		path:   path,
 		query:  query,
 		output: &items,
 		list:   true,
-	}
-	resp, pageInfo, err := c.doRequest(ctx, op)
+	})
 	if err != nil {
-		return Page[T]{}, resp, err
+		return Page[T]{}, response, err
 	}
-	page := Page[T]{Items: items}
-	if pageInfo != nil {
-		page.PageInfo = *pageInfo
-	}
-	return page, resp, nil
+	return Page[T]{
+		Items: items,
+		PageInfo: PageInfo{
+			Count: pagination.Count,
+			Next:  pagination.Next,
+		},
+	}, response, nil
 }
 
 func (c *Client) doRequest(
 	ctx context.Context,
 	op operation,
-) (Response, *PageInfo, error) {
-	if ctx == nil {
-		return Response{}, nil, errors.New("monime: nil context")
+) (Response, *paginationEnvelope, error) {
+	if err := validateOperation(ctx, op); err != nil {
+		return Response{}, nil, err
 	}
 
 	operationCtx := ctx
 	cancel := func() {}
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline && c.timeout > 0 {
+	if c.timeout > 0 {
 		operationCtx, cancel = context.WithTimeout(ctx, c.timeout)
 	}
 	defer cancel()
@@ -183,49 +82,110 @@ func (c *Client) doRequest(
 		return Response{}, nil, err
 	}
 	requestURL := c.buildURL(op.path, op.query)
-	headers, err := c.requestHeaders(op.method, body != nil)
-	if err != nil {
-		return Response{}, nil, err
-	}
-	idempotencyKey := headers.Get("Idempotency-Key")
+	headers := c.requestHeaders(body != nil, op.idempotencyKey)
 
-	var lastErr error
-	for attempt := 0; ; attempt++ {
-		resp, pageInfo, err := c.doAttempt(operationCtx, attemptRequest{
+	var lastResponse Response
+	for attempt := 1; attempt <= c.retry.MaxAttempts; attempt++ {
+		response, pagination, err := c.doAttempt(operationCtx, attemptRequest{
 			method:  op.method,
 			url:     requestURL,
 			body:    body,
 			headers: headers,
 			output:  op.output,
 			list:    op.list,
+			emptyOK: op.emptyOK,
 		})
-		if err == nil {
-			resp.Attempts = attempt + 1
-			resp.IdempotencyKey = idempotencyKey
-			return resp, pageInfo, nil
+		response.Attempts = attempt
+		response.IdempotencyKey = op.idempotencyKey
+		lastResponse = response
+		if apiErr := apiErrorFrom(err); apiErr != nil {
+			apiErr.Attempts = attempt
+			apiErr.IdempotencyKey = op.idempotencyKey
 		}
-		lastErr = err
-		if apiErr, ok := err.(*APIError); ok {
-			apiErr.Attempts = attempt + 1
-			apiErr.IdempotencyKey = idempotencyKey
+		if err == nil {
+			return response, pagination, nil
 		}
 		if operationCtx.Err() != nil {
-			if ctx.Err() != nil {
-				return Response{}, nil, ctx.Err()
-			}
-			return Response{}, nil, &TimeoutError{Timeout: c.timeout}
+			return response, nil, operationContextError(ctx, c.timeout)
 		}
-		if attempt >= c.retries || !isReplaySafe(op.method) || !isRetryable(err) {
-			return Response{}, nil, err
+		if attempt == c.retry.MaxAttempts || !isReplaySafe(op.method) || !isRetryable(err) {
+			return response, nil, err
 		}
-		delay := c.calculateRetryDelay(attempt, lastErr)
-		if err := sleep(operationCtx, delay); err != nil {
-			return Response{}, nil, err
+		if err := sleep(operationCtx, c.retryDelay(attempt-1, err)); err != nil {
+			return lastResponse, nil, operationContextError(ctx, c.timeout)
 		}
 	}
+
+	return lastResponse, nil, errors.New("monime: request attempts exhausted")
 }
 
-// attemptRequest is one HTTP attempt within an operation's retry loop.
+func validateOperation(ctx context.Context, op operation) error {
+	if ctx == nil {
+		return newValidationError("Context", "must be non-nil")
+	}
+	if op.method == http.MethodPost {
+		if op.idempotencyKey == "" {
+			return newValidationError("IdempotencyKey", "must be non-empty for POST requests")
+		}
+		if len(op.idempotencyKey) > 64 {
+			return newValidationError("IdempotencyKey", "must contain at most 64 characters")
+		}
+		return nil
+	}
+	if op.idempotencyKey != "" {
+		return newValidationError("IdempotencyKey", "must be omitted for non-POST requests")
+	}
+	return nil
+}
+
+func operationContextError(parent context.Context, timeout time.Duration) error {
+	if err := parent.Err(); err != nil {
+		return err
+	}
+	return fmt.Errorf("monime: operation timed out after %s: %w", timeout, context.DeadlineExceeded)
+}
+
+func (c *Client) buildURL(path string, query url.Values) *url.URL {
+	requestURL := *c.baseURL
+	escapedPath := "/v1" + path
+	decodedPath, err := url.PathUnescape(escapedPath)
+	if err != nil {
+		decodedPath = escapedPath
+	}
+	requestURL.Path = decodedPath
+	requestURL.RawPath = escapedPath
+	requestURL.RawQuery = query.Encode()
+	return &requestURL
+}
+
+func marshalBody(input any) ([]byte, error) {
+	if input == nil {
+		return nil, nil
+	}
+	body, err := json.Marshal(input)
+	if err != nil {
+		return nil, fmt.Errorf("monime: encode request body: %w", err)
+	}
+	return body, nil
+}
+
+func (c *Client) requestHeaders(hasBody bool, idempotencyKey string) http.Header {
+	headers := http.Header{
+		"Authorization":   {"Bearer " + c.accessToken},
+		"Monime-Space-Id": {c.spaceID},
+		"Monime-Version":  {apiVersion},
+		"Accept":          {"application/json"},
+		"User-Agent":      {c.userAgent},
+	}
+	if hasBody {
+		headers.Set("Content-Type", "application/json")
+	}
+	if idempotencyKey != "" {
+		headers.Set("Idempotency-Key", idempotencyKey)
+	}
+	return headers
+}
+
 type attemptRequest struct {
 	method  string
 	url     *url.URL
@@ -233,133 +193,137 @@ type attemptRequest struct {
 	headers http.Header
 	output  any
 	list    bool
+	emptyOK bool
 }
 
 func (c *Client) doAttempt(
 	ctx context.Context,
 	req attemptRequest,
-) (Response, *PageInfo, error) {
-	request, err := http.NewRequestWithContext(
-		ctx,
-		req.method,
-		req.url.String(),
-		bytes.NewReader(req.body),
-	)
+) (Response, *paginationEnvelope, error) {
+	request, err := http.NewRequestWithContext(ctx, req.method, req.url.String(), bytes.NewReader(req.body))
 	if err != nil {
 		return Response{}, nil, fmt.Errorf("monime: create request: %w", err)
 	}
 	request.Header = req.headers.Clone()
 
-	response, err := c.httpClient.Do(request)
+	httpResponse, err := c.httpClient.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
 			return Response{}, nil, ctx.Err()
 		}
-		return Response{}, nil, &NetworkError{Cause: err}
+		return Response{}, nil, sanitizeTransportError(err)
 	}
-	defer response.Body.Close()
+	defer httpResponse.Body.Close()
 
-	bodyBytes, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBody))
+	body, err := io.ReadAll(io.LimitReader(httpResponse.Body, maxResponseBody+1))
 	if err != nil {
-		return Response{}, nil, &NetworkError{Cause: err}
+		return Response{}, nil, fmt.Errorf("monime: read response: %w", err)
 	}
-	retryAfter, _ := parseRetryAfter(response.Header.Get("Retry-After"), time.Now())
-	metadata := Response{
-		StatusCode:     response.StatusCode,
-		RequestID:      response.Header.Get("Monime-Request-Id"),
-		Attempts:       1,
-		IdempotencyKey: req.headers.Get("Idempotency-Key"),
-		RetryAfter:     retryAfter,
-		Header:         response.Header.Clone(),
+	retryAfter, _ := parseRetryAfter(httpResponse.Header.Get("Retry-After"), time.Now())
+	response := Response{
+		StatusCode: httpResponse.StatusCode,
+		RequestID:  httpResponse.Header.Get("Monime-Request-Id"),
+		RetryAfter: retryAfter,
 	}
-	if response.StatusCode < http.StatusOK ||
-		response.StatusCode >= http.StatusMultipleChoices {
-		err := parseAPIError(response.StatusCode, response.Header, bodyBytes, time.Now())
-		return metadata, nil, err
+	if len(body) > maxResponseBody {
+		return response, nil, &APIError{
+			Status:     httpResponse.StatusCode,
+			Code:       httpResponse.StatusCode,
+			Reason:     "response_too_large",
+			Message:    "response body exceeds 10 MiB",
+			RequestID:  response.RequestID,
+			RetryAfter: response.RetryAfter,
+		}
 	}
-	if len(bytes.TrimSpace(bodyBytes)) == 0 || req.output == nil {
-		return metadata, nil, nil
+	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
+		return response, nil, parseAPIError(httpResponse.StatusCode, httpResponse.Header, body)
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		if req.emptyOK || req.output == nil {
+			return response, nil, nil
+		}
+		return response, nil, invalidSuccess(httpResponse.StatusCode, "missing_result", body)
+	}
+	if req.output == nil {
+		return response, nil, nil
 	}
 	if req.list {
-		pageInfo, err := decodeList(bodyBytes, req.output, response.StatusCode)
-		if err != nil {
-			return metadata, nil, err
-		}
-		return metadata, pageInfo, nil
+		pagination, err := decodeList(body, req.output, httpResponse.StatusCode)
+		return response, pagination, err
 	}
-	if err := decodeResult(bodyBytes, req.output, response.StatusCode); err != nil {
-		return metadata, nil, err
-	}
-	return metadata, nil, nil
+	return response, nil, decodeResult(body, req.output, httpResponse.StatusCode)
 }
 
-func decodeList(body []byte, output any, status int) (*PageInfo, error) {
+func sanitizeTransportError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return fmt.Errorf("monime: HTTP request failed: %w", urlErr.Err)
+	}
+	return fmt.Errorf("monime: HTTP request failed: %w", err)
+}
+
+func decodeList(body []byte, output any, status int) (*paginationEnvelope, error) {
 	var envelope apiListResponse
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		return nil, malformedSuccess(status, body)
+		return nil, invalidSuccess(status, "invalid_json", body)
 	}
-	if len(envelope.Result) != 0 && string(envelope.Result) != "null" {
-		if err := json.Unmarshal(envelope.Result, output); err != nil {
-			return nil, invalidResult(status, body)
-		}
+	if !envelope.Success {
+		return nil, invalidSuccess(status, "unsuccessful_response", body)
 	}
-	var pageInfo *PageInfo
-	if len(envelope.Pagination) != 0 && string(envelope.Pagination) != "null" {
-		var pagination paginationEnvelope
-		if err := json.Unmarshal(envelope.Pagination, &pagination); err == nil {
-			pageInfo = &PageInfo{Count: pagination.Count, Next: pagination.Next}
-		}
+	if isMissingResult(envelope.Result) {
+		return nil, invalidSuccess(status, "missing_result", body)
 	}
-	return pageInfo, nil
+	if envelope.Pagination == nil {
+		return nil, invalidSuccess(status, "invalid_pagination", body)
+	}
+	if err := json.Unmarshal(envelope.Result, output); err != nil {
+		return nil, invalidSuccess(status, "invalid_result", body)
+	}
+	return envelope.Pagination, nil
 }
 
 func decodeResult(body []byte, output any, status int) error {
 	var envelope apiResponse
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		return malformedSuccess(status, body)
+		return invalidSuccess(status, "invalid_json", body)
 	}
-	if len(envelope.Result) != 0 && string(envelope.Result) != "null" {
-		if err := json.Unmarshal(envelope.Result, output); err != nil {
-			return invalidResult(status, body)
-		}
+	if !envelope.Success {
+		return invalidSuccess(status, "unsuccessful_response", body)
+	}
+	if isMissingResult(envelope.Result) {
+		return invalidSuccess(status, "missing_result", body)
+	}
+	if err := json.Unmarshal(envelope.Result, output); err != nil {
+		return invalidSuccess(status, "invalid_result", body)
 	}
 	return nil
 }
 
-func malformedSuccess(status int, body []byte) *APIError {
+func isMissingResult(result json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(result)
+	return len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null"))
+}
+
+func invalidSuccess(status int, reason string, body []byte) *APIError {
 	return &APIError{
 		Status:  status,
 		Code:    status,
-		Reason:  "invalid_json",
-		Message: "invalid json response from server",
+		Reason:  reason,
+		Message: "invalid success response from server",
 		Body:    body,
 	}
 }
 
-func invalidResult(status int, body []byte) *APIError {
-	return &APIError{
-		Status:  status,
-		Code:    status,
-		Reason:  "invalid_result",
-		Message: "invalid result response from server",
-		Body:    body,
+func parseAPIError(status int, headers http.Header, body []byte) *APIError {
+	apiErr := &APIError{
+		Status:    status,
+		Code:      status,
+		Reason:    "http_error",
+		Message:   "api request failed",
+		RequestID: headers.Get("Monime-Request-Id"),
+		Body:      body,
 	}
-}
-
-func parseAPIError(
-	status int,
-	headers http.Header,
-	body []byte,
-	now time.Time,
-) *APIError {
-	apiError := &APIError{
-		Status:  status,
-		Code:    status,
-		Reason:  "http_error",
-		Message: "api request failed",
-	}
-	apiError.RetryAfter, _ = parseRetryAfter(headers.Get("Retry-After"), now)
-	apiError.RequestID = headers.Get("Monime-Request-Id")
+	apiErr.RetryAfter, _ = parseRetryAfter(headers.Get("Retry-After"), time.Now())
 
 	var envelope struct {
 		Error *struct {
@@ -370,40 +334,44 @@ func parseAPIError(
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		apiError.Reason = "invalid_json"
-		apiError.Message = "invalid json response from server"
-		return apiError
+		apiErr.Reason = "invalid_json"
+		apiErr.Message = "invalid json response from server"
+		return apiErr
 	}
 	if envelope.Error == nil {
-		return apiError
+		return apiErr
 	}
 	if envelope.Error.Code != 0 {
-		apiError.Code = envelope.Error.Code
+		apiErr.Code = envelope.Error.Code
 	}
 	if envelope.Error.Reason != "" {
-		apiError.Reason = envelope.Error.Reason
+		apiErr.Reason = envelope.Error.Reason
 	}
 	if envelope.Error.Message != "" {
-		apiError.Message = envelope.Error.Message
+		apiErr.Message = envelope.Error.Message
 	}
-	apiError.Details = envelope.Error.Details
-	return apiError
+	apiErr.Details = envelope.Error.Details
+	return apiErr
 }
 
-// isReplaySafe reports whether a method may be retried. Only GET and POST
-// with a stable idempotency key are replay-safe; PATCH and DELETE have no
-// documented replay guarantee.
+func apiErrorFrom(err error) *APIError {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr
+	}
+	return nil
+}
+
 func isReplaySafe(method string) bool {
 	return method == http.MethodGet || method == http.MethodPost
 }
 
 func isRetryable(err error) bool {
-	var apiError *APIError
-	if errors.As(err, &apiError) {
-		return isRetryableStatus(apiError.Status)
+	if apiErr := apiErrorFrom(err); apiErr != nil {
+		return isRetryableStatus(apiErr.Status)
 	}
-	var networkError *NetworkError
-	return errors.As(err, &networkError)
+	var networkErr net.Error
+	return errors.As(err, &networkErr) && (networkErr.Timeout() || networkErr.Temporary())
 }
 
 func isRetryableStatus(status int) bool {
@@ -419,22 +387,25 @@ func isRetryableStatus(status int) bool {
 	}
 }
 
-func (c *Client) calculateRetryDelay(retryIndex int, err error) time.Duration {
-	var apiError *APIError
-	if errors.As(err, &apiError) && apiError.RetryAfter > 0 {
-		return apiError.RetryAfter
+func (c *Client) retryDelay(retryIndex int, err error) time.Duration {
+	if apiErr := apiErrorFrom(err); apiErr != nil && apiErr.RetryAfter > 0 {
+		return apiErr.RetryAfter
 	}
-	baseDelay := float64(c.retryDelay) * math.Pow(c.retryBackoff, float64(retryIndex))
-	maxDelay := time.Duration(math.MaxInt64 - int64(maxRetryJitter))
-	if baseDelay > float64(maxDelay) {
-		baseDelay = float64(maxDelay)
+	delay := c.retry.BaseDelay
+	for range retryIndex {
+		if delay >= c.retry.MaxDelay/2 {
+			delay = c.retry.MaxDelay
+			break
+		}
+		delay *= 2
 	}
-	jitter := time.Duration(mrand.IntN(int(maxRetryJitter / time.Millisecond)))
-	delay := time.Duration(baseDelay) + jitter*time.Millisecond
-	if delay < 0 {
-		return maxRetryJitter
+	if delay > c.retry.MaxDelay {
+		delay = c.retry.MaxDelay
 	}
-	return delay
+	if delay <= 0 {
+		return 0
+	}
+	return mathrand.N(delay + 1)
 }
 
 func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
@@ -442,7 +413,7 @@ func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
 		return 0, false
 	}
 	if seconds, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil {
-		if seconds >= 0 && seconds <= int64(math.MaxInt64/time.Second) {
+		if seconds >= 0 && seconds <= int64((1<<63-1)/time.Second) {
 			return time.Duration(seconds) * time.Second, true
 		}
 		return 0, false
@@ -454,14 +425,6 @@ func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
 }
 
 func sleep(ctx context.Context, delay time.Duration) error {
-	if delay <= 0 {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			return nil
-		}
-	}
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
@@ -472,10 +435,11 @@ func sleep(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func newUUIDv4() (string, error) {
+// NewIdempotencyKey returns a random RFC 4122 UUIDv4 suitable for a POST request.
+func NewIdempotencyKey() (string, error) {
 	var value [16]byte
-	if _, err := crand.Read(value[:]); err != nil {
-		return "", err
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", fmt.Errorf("monime: generate idempotency key: %w", err)
 	}
 	value[6] = value[6]&0x0f | 0x40
 	value[8] = value[8]&0x3f | 0x80

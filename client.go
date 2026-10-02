@@ -1,61 +1,45 @@
 package monime
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 )
 
 const (
-	defaultBaseURL      = "https://api.monime.io"
-	defaultTimeout      = 30 * time.Second
-	defaultRetryDelay   = time.Second
-	defaultRetryBackoff = 2
-	sdkVersion          = "0.1.0"
+	apiEndpoint        = "https://api.monime.io"
+	defaultTimeout     = 30 * time.Second
+	defaultMaxAttempts = 3
+	defaultBaseDelay   = time.Second
+	defaultMaxDelay    = 8 * time.Second
 )
 
 // Config configures a Client.
 type Config struct {
-	SpaceID       string
-	AccessToken   string
-	BaseURL       string
-	APIVersion    string
-	Timeout       time.Duration
-	Retries       int
-	RetryDelay    time.Duration
-	RetryBackoff  float64
-	WebhookSecret string
-	Transport     http.RoundTripper
+	SpaceID     string
+	AccessToken string
+	HTTPClient  *http.Client
+	Timeout     time.Duration
+	Retry       RetryConfig
 }
 
-// Client is the Monime API client. It is immutable after construction and
-// safe for concurrent use.
+// RetryConfig controls retries for GET and idempotent POST requests.
+type RetryConfig struct {
+	MaxAttempts int
+	BaseDelay   time.Duration
+	MaxDelay    time.Duration
+}
+
+// Client is an immutable Monime API client that is safe for concurrent use.
 type Client struct {
-	spaceID               string
-	accessToken           string
-	baseURL               *url.URL
-	apiVersion            string
-	timeout               time.Duration
-	retries               int
-	retryDelay            time.Duration
-	retryBackoff          float64
-	userAgent             string
-	webhookSecret         string
-	httpClient            *http.Client
-	banks                 *BankService
-	mobileMoney           *MobileMoneyService
-	providerKYC           *ProviderKYCService
-	financialAccounts     *FinancialAccountService
-	financialTransactions *FinancialTransactionService
-	paymentCodes          *PaymentCodeService
-	payments              *PaymentService
-	checkoutSessions      *CheckoutSessionService
-	ussdOTPs              *USSDOTPService
-	payouts               *PayoutService
-	internalTransfers     *InternalTransferService
-	receipts              *ReceiptService
-	webhooks              *WebhookService
+	spaceID     string
+	accessToken string
+	baseURL     *url.URL
+	timeout     time.Duration
+	retry       RetryConfig
+	userAgent   string
+	httpClient  *http.Client
 }
 
 // New creates a Client from config.
@@ -65,105 +49,74 @@ func New(config Config) (*Client, error) {
 		return nil, err
 	}
 
-	baseURL, err := url.Parse(config.BaseURL)
+	baseURL, err := url.Parse(apiEndpoint)
 	if err != nil {
-		return nil, newValidationError("BaseURL", "must be a valid HTTPS URL")
-	}
-	baseURL.Path = strings.TrimRight(baseURL.Path, "/")
-	baseURL.RawQuery = ""
-	baseURL.Fragment = ""
-
-	httpClient := &http.Client{CheckRedirect: sameHostRedirectPolicy}
-	if config.Transport != nil {
-		httpClient.Transport = config.Transport
+		return nil, newValidationError("APIEndpoint", "is invalid")
 	}
 
-	client := &Client{
-		spaceID:       config.SpaceID,
-		accessToken:   config.AccessToken,
-		baseURL:       baseURL,
-		apiVersion:    config.APIVersion,
-		timeout:       config.Timeout,
-		retries:       config.Retries,
-		retryDelay:    config.RetryDelay,
-		retryBackoff:  config.RetryBackoff,
-		userAgent:     "monime-go/" + sdkVersion,
-		webhookSecret: config.WebhookSecret,
-		httpClient:    httpClient,
+	httpClient := &http.Client{}
+	if config.HTTPClient != nil {
+		clone := *config.HTTPClient
+		httpClient = &clone
 	}
-	client.banks = &BankService{client: client}
-	client.mobileMoney = &MobileMoneyService{client: client}
-	client.providerKYC = &ProviderKYCService{client: client}
-	client.financialAccounts = &FinancialAccountService{client: client}
-	client.financialTransactions = &FinancialTransactionService{client: client}
-	client.paymentCodes = &PaymentCodeService{client: client}
-	client.payments = &PaymentService{client: client}
-	client.checkoutSessions = &CheckoutSessionService{client: client}
-	client.ussdOTPs = &USSDOTPService{client: client}
-	client.payouts = &PayoutService{client: client}
-	client.internalTransfers = &InternalTransferService{client: client}
-	client.receipts = &ReceiptService{client: client}
-	client.webhooks = &WebhookService{client: client}
+	httpClient.Timeout = 0
+	httpClient.CheckRedirect = refuseRedirects
 
-	return client, nil
+	return &Client{
+		spaceID:     config.SpaceID,
+		accessToken: config.AccessToken,
+		baseURL:     baseURL,
+		timeout:     config.Timeout,
+		retry:       config.Retry,
+		userAgent:   "monime-go/" + sdkVersion,
+		httpClient:  httpClient,
+	}, nil
 }
-
-// Banks returns the bank provider service.
-func (c *Client) Banks() *BankService { return c.banks }
-
-// MobileMoney returns the mobile money provider service.
-func (c *Client) MobileMoney() *MobileMoneyService { return c.mobileMoney }
-
-// ProviderKYC returns the provider KYC service.
-func (c *Client) ProviderKYC() *ProviderKYCService { return c.providerKYC }
-
-// FinancialAccounts returns the financial account service.
-func (c *Client) FinancialAccounts() *FinancialAccountService { return c.financialAccounts }
-
-// FinancialTransactions returns the financial transaction service.
-func (c *Client) FinancialTransactions() *FinancialTransactionService {
-	return c.financialTransactions
-}
-
-// PaymentCodes returns the payment code service.
-func (c *Client) PaymentCodes() *PaymentCodeService { return c.paymentCodes }
-
-// Payments returns the payment service.
-func (c *Client) Payments() *PaymentService { return c.payments }
-
-// CheckoutSessions returns the checkout session service.
-func (c *Client) CheckoutSessions() *CheckoutSessionService { return c.checkoutSessions }
-
-// USSDOTPs returns the USSD OTP service.
-func (c *Client) USSDOTPs() *USSDOTPService { return c.ussdOTPs }
-
-// Payouts returns the payout service.
-func (c *Client) Payouts() *PayoutService { return c.payouts }
-
-// InternalTransfers returns the internal transfer service.
-func (c *Client) InternalTransfers() *InternalTransferService { return c.internalTransfers }
-
-// Receipts returns the receipt service.
-func (c *Client) Receipts() *ReceiptService { return c.receipts }
-
-// Webhooks returns the webhook service.
-func (c *Client) Webhooks() *WebhookService { return c.webhooks }
 
 func withDefaults(config Config) Config {
-	if config.BaseURL == "" {
-		config.BaseURL = defaultBaseURL
-	}
-	if config.APIVersion == "" {
-		config.APIVersion = string(APIVersionCaph20250823)
-	}
 	if config.Timeout == 0 {
 		config.Timeout = defaultTimeout
 	}
-	if config.Retries > 0 && config.RetryDelay == 0 {
-		config.RetryDelay = defaultRetryDelay
+	if config.Retry.MaxAttempts == 0 {
+		config.Retry.MaxAttempts = defaultMaxAttempts
 	}
-	if config.Retries > 0 && config.RetryBackoff == 0 {
-		config.RetryBackoff = defaultRetryBackoff
+	if config.Retry.BaseDelay == 0 {
+		config.Retry.BaseDelay = defaultBaseDelay
+	}
+	if config.Retry.MaxDelay == 0 {
+		config.Retry.MaxDelay = defaultMaxDelay
 	}
 	return config
+}
+
+func validateConfig(config Config) error {
+	if config.SpaceID == "" {
+		return newValidationError("SpaceID", "must be non-empty")
+	}
+	if config.AccessToken == "" {
+		return newValidationError("AccessToken", "must be non-empty")
+	}
+	if config.Timeout < 0 {
+		return newValidationError("Timeout", "must be non-negative")
+	}
+	if config.Retry.MaxAttempts < 0 {
+		return newValidationError("Retry.MaxAttempts", "must be non-negative")
+	}
+	if config.Retry.BaseDelay < 0 {
+		return newValidationError("Retry.BaseDelay", "must be non-negative")
+	}
+	if config.Retry.MaxDelay < 0 {
+		return newValidationError("Retry.MaxDelay", "must be non-negative")
+	}
+	if config.Retry.MaxDelay < config.Retry.BaseDelay {
+		return newValidationError("Retry.MaxDelay", "must not be less than Retry.BaseDelay")
+	}
+	if config.HTTPClient != nil && config.HTTPClient.Timeout < 0 {
+		return newValidationError("HTTPClient.Timeout", "must be non-negative")
+	}
+	return nil
+}
+
+func refuseRedirects(_ *http.Request, _ []*http.Request) error {
+	return errors.New("monime: redirects are not allowed")
 }

@@ -118,17 +118,3 @@ func TestVerifyWebhookSignature(t *testing.T) {
 		})
 	}
 }
-
-func TestWebhookServiceVerifyRequiresSecret(t *testing.T) {
-	t.Parallel()
-
-	client, err := New(Config{SpaceID: "spc-test", AccessToken: "tok-test"})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-	now := time.Now().Unix()
-	header := signWebhook(t, testWebhookBody, testWebhookSecret, now)
-	if _, err = client.Webhooks().Verify(testWebhookBody, header); err == nil {
-		t.Fatal("expected error without configured secret")
-	}
-}

@@ -129,15 +129,6 @@ func (s *WebhookService) Delete(ctx context.Context, id string) (Response, error
 	})
 }
 
-// Verify authenticates a webhook delivery using the client's configured
-// HS256 secret. The raw body must be the exact bytes received from Monime.
-func (s *WebhookService) Verify(rawBody []byte, signatureHeader string) (WebhookEvent, error) {
-	if s.client.webhookSecret == "" {
-		return WebhookEvent{}, fmt.Errorf("monime: configure WebhookSecret before verifying webhook signatures")
-	}
-	return VerifyWebhookSignature(rawBody, signatureHeader, s.client.webhookSecret)
-}
-
 func (q WebhookListQuery) values() url.Values {
 	values := url.Values{}
 	if q.Limit != 0 {
@@ -169,7 +160,7 @@ type WebhookEventObject struct {
 }
 
 // ParseWebhookEvent decodes a webhook envelope without authenticating it.
-// Use Verify or VerifyWebhookSignature to authenticate first.
+// Use VerifyWebhookSignature to authenticate first.
 func ParseWebhookEvent(body []byte) (WebhookEvent, error) {
 	var event WebhookEvent
 	if err := json.Unmarshal(body, &event); err != nil {
