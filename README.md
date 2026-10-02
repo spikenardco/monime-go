@@ -1,10 +1,11 @@
 # Monime Go SDK
 
-Unofficial, typed Go client for Monime's versioned API. Requires Go 1.24 or
-later and has no production dependencies.
+An unofficial Go client for Monime. It requires Go 1.24 or later, uses only the
+standard library, and targets the `caph.2025-08-23` API contract.
 
-This is the first public release, `v0.1.0`. Check the API contract and test
-behavior before using it for production payments.
+The module is still pre-v1. Review breaking changes before upgrading and test
+your payment flows against Monime's API before using a new version in
+production.
 
 ## Install
 
@@ -20,21 +21,30 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	monime "github.com/spikenardco/monime-go"
 )
 
 func main() {
 	client, err := monime.New(monime.Config{
-		SpaceID:     "spc_...",
-		AccessToken: "mon_...",
+		SpaceID:     os.Getenv("MONIME_SPACE_ID"),
+		AccessToken: os.Getenv("MONIME_ACCESS_TOKEN"),
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	code, response, err := client.PaymentCodes().Create(
+	key, err := monime.NewIdempotencyKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Persist key with your operation before sending the request. Reuse it if
+	// the process stops before you know whether Monime accepted the request.
+
+	code, response, err := client.CreatePaymentCode(
 		context.Background(),
+		key,
 		monime.CreatePaymentCodeInput{
 			Name: "Invoice 42",
 			Amount: &monime.Amount{
@@ -51,82 +61,124 @@ func main() {
 }
 ```
 
-`SpaceID` and `AccessToken` are required. `BaseURL` defaults to
-`https://api.monime.io`. `APIVersion` defaults to `caph.2025-08-23`, and
-`Timeout` defaults to 30 seconds.
+`SpaceID` and `AccessToken` are required. The client always sends requests to
+`https://api.monime.io` with API version `caph.2025-08-23`; neither value can be
+overridden. The default operation timeout is 30 seconds. Keep credentials out
+of source control and use test credentials during development and CI.
 
-Keep credentials outside source control. Use test credentials during
-development and CI.
+## API shape
 
-## Services
+Resources are direct methods on `Client`, such as `ListBanks`, `GetPayment`,
+`CreatePayout`, and `RedeemReceipt`. Each method accepts `context.Context` first.
+Methods return the resource, response metadata, and an error. Delete methods
+return response metadata and an error.
 
-The client exposes services for:
+List methods accept a resource-specific parameter struct and return `Page[T]`.
+Use `PageInfo.Next` as the next request's `After` value:
 
-- banks and mobile-money providers;
-- provider KYC;
-- financial accounts and transactions;
-- payment codes and payments;
-- checkout sessions;
-- payouts and internal transfers;
-- receipts and USSD OTPs;
-- webhooks and event parsing.
+```go
+page, response, err := client.ListPayments(ctx, monime.PaymentListParams{
+	Limit: 25,
+})
+if err != nil {
+	log.Fatal(err)
+}
 
-Service methods accept `context.Context` as their first argument. List methods
-return `Page[T]` and response metadata. Pass `PageInfo.Next` as the `after`
-cursor for the next request.
+if page.PageInfo.HasNext() {
+	next, _, err := client.ListPayments(ctx, monime.PaymentListParams{
+		Limit: 25,
+		After: page.PageInfo.Next,
+	})
+	_ = next
+	_ = err
+}
 
-## Requests and retries
+_ = response
+```
 
-POST requests receive a generated UUID idempotency key. The same key remains in
-place across retries and is available as `Response.IdempotencyKey`.
+The SDK does not fetch later pages automatically.
 
-GET and POST requests retry transient network failures and HTTP 429, 500, 502,
-503, and 504 responses. PATCH and DELETE requests are not retried
-automatically. The operation timeout includes request attempts and retry waits.
+PATCH inputs use `Set` and `Null` to distinguish an omitted field from a value
+or an explicit JSON `null`:
 
-Per-request timeout, retry, cancellation, and caller-supplied idempotency-key
-options are tracked in [issue #1](https://github.com/spikenardco/monime-go/issues/1).
+```go
+payment, _, err := client.UpdatePayment(ctx, paymentID, monime.UpdatePaymentInput{
+	Name:     monime.Set("September invoice"),
+	Metadata: monime.Null[monime.Metadata](),
+})
+```
+
+## Idempotency and retries
+
+Every POST method requires an idempotency key. The SDK never generates one as a
+side effect of sending a request. Generate and persist the key before the
+operation, then reuse it whenever the outcome is uncertain. Keys must be at
+most 64 characters; `NewIdempotencyKey` returns a UUIDv4 string.
+
+GET requests and POST requests with their explicit key retry transient network
+failures and HTTP 429, 500, 502, 503, and 504 responses. PATCH and DELETE are
+sent once. The operation timeout covers every attempt and retry delay, and a
+`Retry-After` header is honored only within that deadline.
+
+The supplied `http.Client`, if any, is cloned. Its timeout is replaced by the
+operation timeout, and redirects are refused so credentials stay on Monime's
+fixed endpoint.
 
 ## Errors
 
-Use `errors.As` for typed errors:
+Use `errors.As` to inspect API and validation errors:
 
 ```go
-var apiError *monime.APIError
-if errors.As(err, &apiError) {
-	log.Println(apiError.Status, apiError.Reason, apiError.RequestID)
+var apiErr *monime.APIError
+if errors.As(err, &apiErr) {
+	log.Println(apiErr.Status, apiErr.Reason, apiErr.RequestID)
+}
+
+var validationErr *monime.ValidationError
+if errors.As(err, &validationErr) {
+	log.Println(validationErr.Issues)
 }
 ```
 
-The SDK also provides `NetworkError`, `TimeoutError`, `ValidationError`, and
-`WebhookVerificationError`. `APIError` matches `ErrUnauthorized`,
-`ErrForbidden`, `ErrNotFound`, `ErrConflict`, and `ErrRateLimited` through
-`errors.Is`.
-
-Caller cancellation and deadlines remain available through `errors.Is`.
+`APIError` works with `errors.Is` and `ErrUnauthorized`, `ErrForbidden`,
+`ErrNotFound`, `ErrConflict`, and `ErrRateLimited`. Caller cancellation and
+deadlines remain available as `context.Canceled` and `context.DeadlineExceeded`.
+Network failures preserve their standard Go error chain.
 
 ## Webhooks
 
-`ParseWebhookEvent` decodes the webhook envelope while preserving event data as
-`json.RawMessage`.
+`ParseWebhookEvent` decodes an event envelope and leaves `Data` as
+`json.RawMessage`. It does not authenticate the event. For HS256 webhooks,
+authenticate the exact request bytes first:
 
-The current HS256 verification helpers are provisional. Monime's public HMAC
-documentation does not yet provide an authoritative signing contract or test
-vectors.
+```go
+event, err := monime.VerifyWebhookSignature(body, signatureHeader, secret)
+```
 
-## API contract
+HS256 verification currently mirrors the `monimejs` implementation because
+Monime's official HMAC guide is incomplete. Treat that protocol as provisional.
+ES256 can be selected when creating a webhook, and its public key is decoded in
+the response, but this SDK does not verify ES256 deliveries.
 
-The SDK targets Monime API release `caph.2025-08-23`. Monime's official API
-reference is the source for endpoint behavior and resource fields:
+## Contract and verification scope
 
-<https://docs.monime.io/apis/versions/caph-2025-08-23/>
+The [versioned OpenAPI
+file](https://docs.monime.io/apis/versions/caph-2025-08-23/openapi.yaml) is the
+primary contract. The [versioned endpoint
+reference](https://docs.monime.io/apis/versions/caph-2025-08-23/) and [API
+basics](https://docs.monime.io/developer-resources/api-basics/index.md) provide
+the supporting behavior.
 
-The SDK is unofficial. Review release notes before upgrading.
+This redesign retained the existing model and HS256 tests. Per project
+direction, it did not add transport tests, resource-operation tests, or live API
+smoke tests. Run your own integration checks with test credentials before
+depending on a payment flow.
 
 ## Development
 
 ```sh
 make check
-go test ./...
-go test -race ./...
 ```
+
+`make check` runs formatting checks, `go vet`, module tidy and verification,
+the retained tests, and the race detector.

@@ -1,4 +1,4 @@
-// Package monime provides an unofficial typed Go client for the versioned
-// Monime API. Services accept context.Context first and return typed resources,
-// API pagination, and HTTP response metadata.
+// Package monime provides an unofficial Go client for Monime API release
+// caph.2025-08-23. Resource operations are direct methods on Client. POST
+// methods require caller-supplied idempotency keys.
 package monime

@@ -1,16 +1,17 @@
-# Monime Go SDK Redesign Implementation Plan
+# Monime Go SDK redesign implementation plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+This plan implements the approved redesign in small, buildable commits. Its
+checkboxes track each implementation and verification step.
 
-**Goal:** Replace the current pre-v1 SDK with a flat, source-driven Go client for Monime API `caph.2025-08-23`.
+**Goal:** Replace the pre-v1 SDK with a flat Go client based on Monime API `caph.2025-08-23`.
 
 **Architecture:** One immutable `Client` owns credentials, HTTP policy, retry policy, and response decoding. Resource operations are direct methods on `Client`; resource files own their wire models, validation, query encoding, and methods. The package uses only the standard library and keeps specialized types only for real wire invariants.
 
-**Tech Stack:** Go 1.24, `net/http`, `encoding/json`, `context`, `crypto/hmac`, `crypto/rand`, and the Monime `caph.2025-08-23` OpenAPI contract.
+**Technical basis:** Go 1.24, `net/http`, `encoding/json`, `context`, `crypto/hmac`, `crypto/rand`, and the Monime `caph.2025-08-23` OpenAPI contract.
 
 **Spec:** `docs/superpowers/specs/2026-10-02-monime-go-redesign.md`
 
-## Global Constraints
+## Global constraints
 
 - Backward compatibility with v0.1.0 is not required; do not add aliases, deprecated wrappers, or migration shims.
 - Use the official `caph.2025-08-23` OpenAPI specification as the primary wire contract.
@@ -23,7 +24,7 @@
 - Do not claim production verification without test-environment evidence.
 - Use no generated OpenAPI code, reflection-based field logic, arbitrary headers, or per-request option framework.
 
-## Review Focus
+## Review focus
 
 The user has explicitly deferred new tests, so these conditions require careful implementation review even though this plan does not add coverage for them:
 
@@ -35,7 +36,7 @@ The user has explicitly deferred new tests, so these conditions require careful 
 
 ---
 
-## File Structure
+## File structure
 
 ### Core files
 
@@ -75,7 +76,7 @@ The user has explicitly deferred new tests, so these conditions require careful 
 
 ---
 
-### Task 1: Simplify Independent Core Value Types
+### Task 1: Simplify independent core value types
 
 **Files:**
 - Modify: `field.go`
@@ -135,7 +136,7 @@ git commit -m "refactor: simplify core SDK types"
 
 ---
 
-### Task 2: Rebuild Client and Transport
+### Task 2: Rebuild client and transport
 
 **Files:**
 - Modify: `client.go`
@@ -288,7 +289,7 @@ git commit -m "refactor: rebuild client transport"
 
 ---
 
-### Task 3: Implement Discovery and Financial-Account Operations
+### Task 3: Implement discovery and financial-account operations
 
 **Files:**
 - Create: `country.go`
@@ -353,7 +354,7 @@ git commit -m "feat: add direct provider and account operations"
 
 ---
 
-### Task 4: Implement Payment Collection Operations
+### Task 4: Implement payment collection operations
 
 **Files:**
 - Modify: `payment_code.go`
@@ -397,7 +398,7 @@ git commit -m "feat: add direct payment collection operations"
 
 ---
 
-### Task 5: Implement Money-Movement Operations
+### Task 5: Implement money-movement operations
 
 **Files:**
 - Modify: `payout.go`
@@ -448,7 +449,7 @@ git commit -m "feat: add direct money movement operations"
 
 ---
 
-### Task 6: Implement Receipt and USSD OTP Operations
+### Task 6: Implement receipt and USSD OTP operations
 
 **Files:**
 - Modify: `receipt.go`
@@ -487,7 +488,7 @@ git commit -m "feat: add direct receipt and USSD OTP operations"
 
 ---
 
-### Task 7: Implement Webhook CRUD and Preserve JS-Compatible Verification
+### Task 7: Implement webhook CRUD and preserve JS-compatible verification
 
 **Files:**
 - Modify: `webhook.go`
@@ -541,7 +542,7 @@ git commit -m "feat: add direct webhook operations"
 
 ---
 
-### Task 8: Remove Residual Legacy Surface
+### Task 8: Remove residual legacy surface
 
 **Files:**
 - Modify any `.go` file still containing a legacy service declaration or accessor.
@@ -594,7 +595,7 @@ git diff --cached --quiet || git commit -m "refactor: remove legacy service API"
 
 ---
 
-### Task 9: Rewrite Documentation and Honest Automation
+### Task 9: Rewrite documentation and honest automation
 
 **Files:**
 - Modify: `README.md`
@@ -683,7 +684,7 @@ git commit -m "docs: document the redesigned Go SDK"
 
 ---
 
-### Task 10: Final Contract and Quality Review
+### Task 10: Final contract and quality review
 
 **Files:**
 - Review all changed Go and documentation files.

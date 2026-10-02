@@ -1,15 +1,12 @@
-.PHONY: check fmt-check vet lint tidy verify vuln
+.PHONY: check fmt-check vet tidy verify test race
 
-check: fmt-check vet lint tidy verify vuln
+check: fmt-check vet tidy verify test race
 
 fmt-check:
-	test -z "$(shell gofmt -l .)"
+	test -z "$$(gofmt -l .)"
 
 vet:
 	go vet ./...
-
-# TODO: Replace this compatibility alias with a pinned external linter when one is approved.
-lint: vet
 
 tidy:
 	go mod tidy -diff
@@ -17,6 +14,8 @@ tidy:
 verify:
 	go mod verify
 
-# TODO: Run a pinned external vulnerability scanner when external development tools are approved.
-vuln:
-	@true
+test:
+	go test ./...
+
+race:
+	go test -race ./...

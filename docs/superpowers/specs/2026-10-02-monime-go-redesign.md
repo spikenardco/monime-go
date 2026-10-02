@@ -1,4 +1,4 @@
-# Monime Go SDK Redesign
+# Monime Go SDK redesign
 
 Date: 2026-10-02
 Status: approved
@@ -9,11 +9,11 @@ Replace the current pre-v1 SDK with a small, idiomatic Go API derived from
 Monime's `caph.2025-08-23` contract. Backward compatibility with the current Go
 surface and parity with `monimejs` are not requirements.
 
-The redesign favors plain structs, direct methods, standard-library behavior,
-and explicit financial-operation semantics. It must not preserve JavaScript
-module patterns, add compatibility shims, or generate a large OpenAPI client.
+The Go API uses plain structs, direct methods, standard-library behavior, and
+explicit financial-operation semantics. JavaScript module patterns,
+compatibility shims, and a generated OpenAPI client are outside this design.
 
-## Contract Sources
+## Contract sources
 
 Contract decisions use these sources in order:
 
@@ -26,10 +26,10 @@ The SDK targets only `caph.2025-08-23`. It does not expose an arbitrary API
 version setting because its Go models describe that specific contract.
 
 The official HMAC page is currently a placeholder. HS256 webhook verification
-therefore follows the existing `monimejs` algorithm and must be documented as a
-provisional cross-SDK contract rather than an official Monime protocol.
+follows the existing `monimejs` algorithm and is documented as a provisional
+cross-SDK contract, not an official Monime protocol.
 
-## Public Package Shape
+## Public package shape
 
 The repository remains one dependency-free package, `monime`.
 
@@ -47,7 +47,7 @@ payout, response, err := client.CreatePayout(ctx, idempotencyKey, input)
 There are no public service interfaces, service accessor methods, builders,
 request-option framework, branded resource IDs, or compatibility aliases.
 
-## Client Configuration
+## Client configuration
 
 ```go
 type Config struct {
@@ -83,7 +83,7 @@ Rules:
 - Webhook secrets are not client configuration. Incoming webhook verification
   is independent of outgoing API access.
 
-## Method Surface
+## Method surface
 
 The client exposes the operations present in the versioned OpenAPI contract:
 
@@ -143,7 +143,7 @@ Idempotency keys must be non-empty and at most 64 characters. The official
 guide and OpenAPI disagree about the lower and upper boundary wording, so the
 SDK does not invent a stricter minimum. Generated keys are UUIDv4 strings.
 
-## Data Model
+## Data model
 
 Models follow the OpenAPI wire schema while using Go conventions:
 
@@ -219,14 +219,14 @@ Transport behavior:
 - retry HTTP 429, 500, 502, 503, and 504 and transient network failures;
 - honor `Retry-After` without sleeping beyond the operation context;
 - use bounded exponential backoff with jitter;
-- limit response bodies to 10 MiB and reject, rather than truncate, larger bodies;
+- limit response bodies to 10 MiB and reject larger bodies without truncating them;
 - close every response body;
 - reject malformed envelopes, `success: false` success responses, missing
   results, malformed pagination, and type-invalid results;
 - accept documented successful empty bodies for delete operations;
 - never include credentials or full request URLs in returned error strings.
 
-## Responses and Errors
+## Responses and errors
 
 `Response` exposes stable diagnostics only:
 
@@ -257,7 +257,7 @@ HTTP status sentinels such as `ErrUnauthorized`, `ErrNotFound`, and
 `ErrRateLimited` remain supported through `APIError.Is` because they provide
 useful control flow without forcing message parsing.
 
-## Webhook Verification
+## Webhook verification
 
 The package keeps the standalone API:
 
@@ -284,17 +284,17 @@ Its provisional protocol mirrors `../monimejs/src/webhook.js`:
 ES256 delivery verification is not implemented because neither the official
 guide nor the JS SDK defines its delivery format.
 
-## Documentation and Repository Cleanup
+## Documentation and repository cleanup
 
 - Rewrite the README around the new direct-client API and explicit
   idempotency workflow.
 - Cite the versioned OpenAPI and API-basics pages for contract-sensitive behavior.
 - Replace `MONIME_GO_MASTER_PLAN.md` with this concise, current design record;
   do not retain superseded migration plans.
-- Remove fake `lint` and `vuln` targets rather than advertising no-op gates.
+- Remove the no-op `lint` and `vuln` targets.
 - Keep the module dependency-free.
 
-## Verification Scope
+## Verification scope
 
 No new tests are added in this redesign, per project direction. Existing tests
 are retained where their public contract survives and adjusted only when needed
@@ -312,7 +312,7 @@ Implementation verification consists of:
 The absence of new transport and operation tests must remain explicit in the
 README; the SDK must not claim production verification that has not occurred.
 
-## Out of Scope
+## Out of scope
 
 - backward compatibility with v0.1.0;
 - generated OpenAPI code;
