@@ -1,7 +1,7 @@
 # Monime Go SDK Redesign
 
 Date: 2026-10-02
-Status: proposed
+Status: approved
 
 ## Purpose
 
