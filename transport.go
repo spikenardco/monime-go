@@ -368,6 +368,9 @@ func isReplaySafe(method string) bool {
 
 func isRetryable(err error) bool {
 	if apiErr := apiErrorFrom(err); apiErr != nil {
+		if apiErr.Reason == "response_too_large" {
+			return false
+		}
 		return isRetryableStatus(apiErr.Status)
 	}
 	var networkErr net.Error

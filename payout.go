@@ -50,6 +50,11 @@ type PayoutSource struct {
 	TransactionReference *string `json:"transactionReference,omitempty"`
 }
 
+// CreatePayoutSource selects the financial account debited by a payout.
+type CreatePayoutSource struct {
+	FinancialAccountID string `json:"financialAccountId"`
+}
+
 // PayoutDestination is a bank, mobile-money, or wallet recipient.
 // Construct values with BankDestination, MobileMoneyDestination, or WalletDestination.
 type PayoutDestination struct {
@@ -176,10 +181,10 @@ type PayoutFailureDetail struct {
 
 // CreatePayoutInput contains fields accepted when creating a payout.
 type CreatePayoutInput struct {
-	Amount      Amount            `json:"amount"`
-	Destination PayoutDestination `json:"destination"`
-	Source      *PayoutSource     `json:"source,omitempty"`
-	Metadata    Metadata          `json:"metadata,omitempty"`
+	Amount      Amount              `json:"amount"`
+	Destination PayoutDestination   `json:"destination"`
+	Source      *CreatePayoutSource `json:"source,omitempty"`
+	Metadata    Metadata            `json:"metadata,omitempty"`
 }
 
 // UpdatePayoutInput contains mutable payout fields.
@@ -208,6 +213,9 @@ func (c *Client) CreatePayout(
 	}
 	if err := validatePayoutDestination(input.Destination); err != nil {
 		return nil, nil, err
+	}
+	if input.Source != nil && input.Source.FinancialAccountID == "" {
+		return nil, nil, newValidationError("Source.FinancialAccountID", "must be non-empty")
 	}
 	var payout Payout
 	response, err := c.do(ctx, operation{

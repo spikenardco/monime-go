@@ -30,14 +30,14 @@ type PageInfo struct {
 func (p PageInfo) HasNext() bool { return p.Next != "" }
 
 type apiResponse struct {
-	Success  bool            `json:"success"`
-	Messages []string        `json:"messages"`
-	Result   json.RawMessage `json:"result"`
+	Success  bool              `json:"success"`
+	Messages []json.RawMessage `json:"messages"`
+	Result   json.RawMessage   `json:"result"`
 }
 
 type apiListResponse struct {
 	Success    bool                `json:"success"`
-	Messages   []string            `json:"messages"`
+	Messages   []json.RawMessage   `json:"messages"`
 	Result     json.RawMessage     `json:"result"`
 	Pagination *paginationEnvelope `json:"pagination"`
 }

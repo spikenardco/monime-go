@@ -56,8 +56,8 @@ func (e *APIError) Is(target error) bool {
 	}
 }
 
-// IsRetryable reports whether the HTTP status is eligible for retry.
-func (e *APIError) IsRetryable() bool { return isRetryableStatus(e.Status) }
+// IsRetryable reports whether the request that produced the error is eligible for retry.
+func (e *APIError) IsRetryable() bool { return isRetryable(e) }
 
 // ValidationIssue identifies one invalid field.
 type ValidationIssue struct {
