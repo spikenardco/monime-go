@@ -2,8 +2,12 @@ package monime
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // PayoutStatus is the processing state of a payout.
@@ -25,7 +29,7 @@ const (
 	PayoutDestinationWallet PayoutDestinationType = "wallet"
 )
 
-// Payout is a disbursement from a financial account to an external recipient.
+// Payout is a disbursement to an external financial provider.
 type Payout struct {
 	ID             string               `json:"id"`
 	Status         PayoutStatus         `json:"status"`
@@ -34,30 +38,143 @@ type Payout struct {
 	Destination    PayoutDestination    `json:"destination"`
 	Fees           []Fee                `json:"fees,omitempty"`
 	FailureDetail  *PayoutFailureDetail `json:"failureDetail,omitempty"`
-	CreateTime     string               `json:"createTime"`
-	UpdateTime     *string              `json:"updateTime,omitempty"`
+	CreateTime     time.Time            `json:"createTime"`
+	UpdateTime     time.Time            `json:"updateTime"`
 	OwnershipGraph *OwnershipGraph      `json:"ownershipGraph,omitempty"`
 	Metadata       Metadata             `json:"metadata,omitempty"`
 }
 
+// PayoutSource identifies the account debited by a payout.
 type PayoutSource struct {
 	FinancialAccountID   string  `json:"financialAccountId"`
 	TransactionReference *string `json:"transactionReference,omitempty"`
 }
 
+// PayoutDestination is a bank, mobile-money, or wallet recipient.
+// Construct values with BankDestination, MobileMoneyDestination, or WalletDestination.
 type PayoutDestination struct {
-	Type          PayoutDestinationType `json:"type"`
-	ProviderID    string                `json:"providerId"`
-	AccountNumber string                `json:"accountNumber,omitempty"`
-	PhoneNumber   string                `json:"phoneNumber,omitempty"`
-	WalletID      string                `json:"walletId,omitempty"`
+	typeName             PayoutDestinationType
+	providerID           string
+	accountNumber        string
+	phoneNumber          string
+	walletID             string
+	transactionReference *string
 }
 
+// BankDestination returns a bank-account payout destination.
+func BankDestination(providerID, accountNumber string) PayoutDestination {
+	return PayoutDestination{
+		typeName:      PayoutDestinationBank,
+		providerID:    providerID,
+		accountNumber: accountNumber,
+	}
+}
+
+// MobileMoneyDestination returns a mobile-money payout destination.
+func MobileMoneyDestination(providerID, phoneNumber string) PayoutDestination {
+	return PayoutDestination{
+		typeName:    PayoutDestinationMomo,
+		providerID:  providerID,
+		phoneNumber: phoneNumber,
+	}
+}
+
+// WalletDestination returns a digital-wallet payout destination.
+func WalletDestination(providerID, walletID string) PayoutDestination {
+	return PayoutDestination{
+		typeName:   PayoutDestinationWallet,
+		providerID: providerID,
+		walletID:   walletID,
+	}
+}
+
+// Type returns the destination discriminator.
+func (d PayoutDestination) Type() PayoutDestinationType { return d.typeName }
+
+// ProviderID returns the Monime provider ID.
+func (d PayoutDestination) ProviderID() string { return d.providerID }
+
+// AccountNumber returns the bank account number, or an empty string for other variants.
+func (d PayoutDestination) AccountNumber() string { return d.accountNumber }
+
+// PhoneNumber returns the mobile-money number, or an empty string for other variants.
+func (d PayoutDestination) PhoneNumber() string { return d.phoneNumber }
+
+// WalletID returns the wallet ID, or an empty string for other variants.
+func (d PayoutDestination) WalletID() string { return d.walletID }
+
+// TransactionReference returns the provider transaction reference when present.
+func (d PayoutDestination) TransactionReference() *string { return d.transactionReference }
+
+// MarshalJSON emits only fields valid for the destination variant.
+func (d PayoutDestination) MarshalJSON() ([]byte, error) {
+	switch d.typeName {
+	case PayoutDestinationBank:
+		return json.Marshal(struct {
+			Type          PayoutDestinationType `json:"type"`
+			ProviderID    string                `json:"providerId"`
+			AccountNumber string                `json:"accountNumber"`
+		}{
+			Type:          d.typeName,
+			ProviderID:    d.providerID,
+			AccountNumber: d.accountNumber,
+		})
+	case PayoutDestinationMomo:
+		return json.Marshal(struct {
+			Type        PayoutDestinationType `json:"type"`
+			ProviderID  string                `json:"providerId"`
+			PhoneNumber string                `json:"phoneNumber"`
+		}{
+			Type:        d.typeName,
+			ProviderID:  d.providerID,
+			PhoneNumber: d.phoneNumber,
+		})
+	case PayoutDestinationWallet:
+		return json.Marshal(struct {
+			Type       PayoutDestinationType `json:"type"`
+			ProviderID string                `json:"providerId"`
+			WalletID   string                `json:"walletId"`
+		}{
+			Type:       d.typeName,
+			ProviderID: d.providerID,
+			WalletID:   d.walletID,
+		})
+	default:
+		return nil, errors.New("monime: invalid payout destination")
+	}
+}
+
+// UnmarshalJSON decodes a destination returned by the API.
+func (d *PayoutDestination) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Type                 PayoutDestinationType `json:"type"`
+		ProviderID           string                `json:"providerId"`
+		AccountNumber        string                `json:"accountNumber"`
+		PhoneNumber          string                `json:"phoneNumber"`
+		WalletID             string                `json:"walletId"`
+		TransactionReference *string               `json:"transactionReference"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	*d = PayoutDestination{
+		typeName:             wire.Type,
+		providerID:           wire.ProviderID,
+		accountNumber:        wire.AccountNumber,
+		phoneNumber:          wire.PhoneNumber,
+		walletID:             wire.WalletID,
+		transactionReference: wire.TransactionReference,
+	}
+	return nil
+}
+
+// PayoutFailureDetail describes a failed payout.
 type PayoutFailureDetail struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
+// CreatePayoutInput contains fields accepted when creating a payout.
 type CreatePayoutInput struct {
 	Amount      Amount            `json:"amount"`
 	Destination PayoutDestination `json:"destination"`
@@ -65,11 +182,13 @@ type CreatePayoutInput struct {
 	Metadata    Metadata          `json:"metadata,omitempty"`
 }
 
+// UpdatePayoutInput contains mutable payout fields.
 type UpdatePayoutInput struct {
 	Metadata Field[Metadata] `json:"metadata,omitzero"`
 }
 
-type PayoutListQuery struct {
+// PayoutListParams filters a payout list request.
+type PayoutListParams struct {
 	Limit                           int
 	After                           string
 	Status                          PayoutStatus
@@ -78,85 +197,138 @@ type PayoutListQuery struct {
 	DestinationTransactionReference string
 }
 
-type PayoutService struct{ client *Client }
+// CreatePayout creates a payout.
+func (c *Client) CreatePayout(
+	ctx context.Context,
+	idempotencyKey string,
+	input CreatePayoutInput,
+) (*Payout, *Response, error) {
+	if input.Amount.Value <= 0 {
+		return nil, nil, newValidationError("Amount.Value", "must be positive")
+	}
+	if err := validatePayoutDestination(input.Destination); err != nil {
+		return nil, nil, err
+	}
+	var payout Payout
+	response, err := c.do(ctx, operation{
+		method:         http.MethodPost,
+		path:           "/payouts",
+		input:          input,
+		output:         &payout,
+		idempotencyKey: idempotencyKey,
+	})
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &payout, &response, nil
+}
 
-func (s *PayoutService) Create(ctx context.Context, input CreatePayoutInput) (Payout, Response, error) {
-	if input.Destination.Type == "" {
-		return Payout{}, Response{}, newValidationError("Destination.Type", "must be non-empty")
+// GetPayout returns a payout by ID.
+func (c *Client) GetPayout(ctx context.Context, id string) (*Payout, *Response, error) {
+	if id == "" {
+		return nil, nil, newValidationError("ID", "must be non-empty")
 	}
-	if input.Destination.ProviderID == "" {
-		return Payout{}, Response{}, newValidationError("Destination.ProviderID", "must be non-empty")
+	var payout Payout
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
+		path:   "/payouts/" + url.PathEscape(id),
+		output: &payout,
+	})
+	if err != nil {
+		return nil, responseOrNil(response), err
 	}
-	var result Payout
-	response, err := s.client.do(ctx, operation{
-		method: "POST",
-		path:   "/payouts",
+	return &payout, &response, nil
+}
+
+// ListPayouts returns payouts matching params.
+func (c *Client) ListPayouts(ctx context.Context, params PayoutListParams) (*Page[Payout], *Response, error) {
+	page, response, err := doList[Payout](c, ctx, "/payouts", params.values())
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &page, &response, nil
+}
+
+// UpdatePayout updates mutable fields on a payout.
+func (c *Client) UpdatePayout(
+	ctx context.Context,
+	id string,
+	input UpdatePayoutInput,
+) (*Payout, *Response, error) {
+	if id == "" {
+		return nil, nil, newValidationError("ID", "must be non-empty")
+	}
+	if !input.Metadata.IsSet() {
+		return nil, nil, newValidationError("Input", "must contain at least one field")
+	}
+	var payout Payout
+	response, err := c.do(ctx, operation{
+		method: http.MethodPatch,
+		path:   "/payouts/" + url.PathEscape(id),
 		input:  input,
-		output: &result,
+		output: &payout,
 	})
-	return result, response, err
-}
-
-func (s *PayoutService) Get(ctx context.Context, id string) (Payout, Response, error) {
-	if id == "" {
-		return Payout{}, Response{}, newValidationError("ID", "must be non-empty")
+	if err != nil {
+		return nil, responseOrNil(response), err
 	}
-	var result Payout
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
-		path:   "/payouts/" + url.PathEscape(id),
-		output: &result,
-	})
-	return result, response, err
+	return &payout, &response, nil
 }
 
-func (s *PayoutService) List(ctx context.Context, query PayoutListQuery) (Page[Payout], Response, error) {
-	return doList[Payout](s.client, ctx, "/payouts", query.values())
-}
-
-func (s *PayoutService) Update(ctx context.Context, id string, input UpdatePayoutInput) (Payout, Response, error) {
+// DeletePayout deletes a payout that has not begun processing.
+func (c *Client) DeletePayout(ctx context.Context, id string) (*Response, error) {
 	if id == "" {
-		return Payout{}, Response{}, newValidationError("ID", "must be non-empty")
+		return nil, newValidationError("ID", "must be non-empty")
 	}
-	var result Payout
-	response, err := s.client.do(ctx, operation{
-		method: "PATCH",
-		path:   "/payouts/" + url.PathEscape(id),
-		input:  input,
-		output: &result,
+	response, err := c.do(ctx, operation{
+		method:  http.MethodDelete,
+		path:    "/payouts/" + url.PathEscape(id),
+		emptyOK: true,
 	})
-	return result, response, err
+	return responseOrNil(response), err
 }
 
-func (s *PayoutService) Delete(ctx context.Context, id string) (Response, error) {
-	if id == "" {
-		return Response{}, newValidationError("ID", "must be non-empty")
+func validatePayoutDestination(destination PayoutDestination) error {
+	if destination.providerID == "" {
+		return newValidationError("Destination.ProviderID", "must be non-empty")
 	}
-	return s.client.do(ctx, operation{
-		method: "DELETE",
-		path:   "/payouts/" + url.PathEscape(id),
-	})
+	switch destination.typeName {
+	case PayoutDestinationBank:
+		if destination.accountNumber == "" {
+			return newValidationError("Destination.AccountNumber", "must be non-empty")
+		}
+	case PayoutDestinationMomo:
+		if destination.phoneNumber == "" {
+			return newValidationError("Destination.PhoneNumber", "must be non-empty")
+		}
+	case PayoutDestinationWallet:
+		if destination.walletID == "" {
+			return newValidationError("Destination.WalletID", "must be non-empty")
+		}
+	default:
+		return newValidationError("Destination", "must be created with a destination constructor")
+	}
+	return nil
 }
 
-func (q PayoutListQuery) values() url.Values {
+func (p PayoutListParams) values() url.Values {
 	values := url.Values{}
-	if q.Limit != 0 {
-		values.Set("limit", strconv.Itoa(q.Limit))
+	if p.Limit != 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
 	}
-	if q.After != "" {
-		values.Set("after", q.After)
+	if p.After != "" {
+		values.Set("after", p.After)
 	}
-	if q.Status != "" {
-		values.Set("status", string(q.Status))
+	if p.Status != "" {
+		values.Set("status", string(p.Status))
 	}
-	if q.SourceFinancialAccountID != "" {
-		values.Set("sourceFinancialAccountId", q.SourceFinancialAccountID)
+	if p.SourceFinancialAccountID != "" {
+		values.Set("sourceFinancialAccountId", p.SourceFinancialAccountID)
 	}
-	if q.SourceTransactionReference != "" {
-		values.Set("sourceTransactionReference", q.SourceTransactionReference)
+	if p.SourceTransactionReference != "" {
+		values.Set("sourceTransactionReference", p.SourceTransactionReference)
 	}
-	if q.DestinationTransactionReference != "" {
-		values.Set("destinationTransactionReference", q.DestinationTransactionReference)
+	if p.DestinationTransactionReference != "" {
+		values.Set("destinationTransactionReference", p.DestinationTransactionReference)
 	}
 	return values
 }

@@ -2,8 +2,10 @@ package monime
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // InternalTransferStatus is the processing state of an internal transfer.
@@ -26,21 +28,24 @@ type InternalTransfer struct {
 	FinancialTransactionReference *string                        `json:"financialTransactionReference,omitempty"`
 	Description                   *string                        `json:"description,omitempty"`
 	FailureDetail                 *InternalTransferFailureDetail `json:"failureDetail,omitempty"`
-	CreateTime                    string                         `json:"createTime"`
-	UpdateTime                    *string                        `json:"updateTime,omitempty"`
+	CreateTime                    time.Time                      `json:"createTime"`
+	UpdateTime                    *time.Time                     `json:"updateTime,omitempty"`
 	OwnershipGraph                *OwnershipGraph                `json:"ownershipGraph,omitempty"`
 	Metadata                      Metadata                       `json:"metadata,omitempty"`
 }
 
+// FinancialAccountRef identifies a financial account in a transfer.
 type FinancialAccountRef struct {
 	ID string `json:"id"`
 }
 
+// InternalTransferFailureDetail describes a failed transfer.
 type InternalTransferFailureDetail struct {
 	Code    string  `json:"code"`
 	Message *string `json:"message,omitempty"`
 }
 
+// CreateInternalTransferInput contains fields accepted when creating a transfer.
 type CreateInternalTransferInput struct {
 	Amount                      Amount              `json:"amount"`
 	SourceFinancialAccount      FinancialAccountRef `json:"sourceFinancialAccount"`
@@ -49,12 +54,14 @@ type CreateInternalTransferInput struct {
 	Metadata                    Metadata            `json:"metadata,omitempty"`
 }
 
+// UpdateInternalTransferInput contains mutable transfer fields.
 type UpdateInternalTransferInput struct {
 	Description Field[string]   `json:"description,omitzero"`
 	Metadata    Field[Metadata] `json:"metadata,omitzero"`
 }
 
-type InternalTransferListQuery struct {
+// InternalTransferListParams filters an internal-transfer list request.
+type InternalTransferListParams struct {
 	Limit                         int
 	After                         string
 	Status                        InternalTransferStatus
@@ -63,101 +70,130 @@ type InternalTransferListQuery struct {
 	FinancialTransactionReference string
 }
 
-type InternalTransferService struct{ client *Client }
-
-func (s *InternalTransferService) Create(
+// CreateInternalTransfer creates an internal transfer.
+func (c *Client) CreateInternalTransfer(
 	ctx context.Context,
+	idempotencyKey string,
 	input CreateInternalTransferInput,
-) (InternalTransfer, Response, error) {
+) (*InternalTransfer, *Response, error) {
+	if input.Amount.Value <= 0 {
+		return nil, nil, newValidationError("Amount.Value", "must be positive")
+	}
 	if input.SourceFinancialAccount.ID == "" {
-		return InternalTransfer{}, Response{}, newValidationError("SourceFinancialAccount.ID", "must be non-empty")
+		return nil, nil, newValidationError("SourceFinancialAccount.ID", "must be non-empty")
 	}
 	if input.DestinationFinancialAccount.ID == "" {
-		return InternalTransfer{}, Response{}, newValidationError("DestinationFinancialAccount.ID", "must be non-empty")
+		return nil, nil, newValidationError("DestinationFinancialAccount.ID", "must be non-empty")
 	}
 	if input.SourceFinancialAccount.ID == input.DestinationFinancialAccount.ID {
-		return InternalTransfer{}, Response{}, newValidationError(
+		return nil, nil, newValidationError(
 			"DestinationFinancialAccount.ID",
 			"must differ from SourceFinancialAccount.ID",
 		)
 	}
-	var result InternalTransfer
-	response, err := s.client.do(ctx, operation{
-		method: "POST",
-		path:   "/internal-transfers",
-		input:  input,
-		output: &result,
+	var transfer InternalTransfer
+	response, err := c.do(ctx, operation{
+		method:         http.MethodPost,
+		path:           "/internal-transfers",
+		input:          input,
+		output:         &transfer,
+		idempotencyKey: idempotencyKey,
 	})
-	return result, response, err
-}
-
-func (s *InternalTransferService) Get(ctx context.Context, id string) (InternalTransfer, Response, error) {
-	if id == "" {
-		return InternalTransfer{}, Response{}, newValidationError("ID", "must be non-empty")
+	if err != nil {
+		return nil, responseOrNil(response), err
 	}
-	var result InternalTransfer
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
-		path:   "/internal-transfers/" + url.PathEscape(id),
-		output: &result,
-	})
-	return result, response, err
+	return &transfer, &response, nil
 }
 
-func (s *InternalTransferService) List(
+// GetInternalTransfer returns an internal transfer by ID.
+func (c *Client) GetInternalTransfer(
 	ctx context.Context,
-	query InternalTransferListQuery,
-) (Page[InternalTransfer], Response, error) {
-	return doList[InternalTransfer](s.client, ctx, "/internal-transfers", query.values())
+	id string,
+) (*InternalTransfer, *Response, error) {
+	if id == "" {
+		return nil, nil, newValidationError("ID", "must be non-empty")
+	}
+	var transfer InternalTransfer
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
+		path:   "/internal-transfers/" + url.PathEscape(id),
+		output: &transfer,
+	})
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &transfer, &response, nil
 }
 
-func (s *InternalTransferService) Update(
+// ListInternalTransfers returns internal transfers matching params.
+func (c *Client) ListInternalTransfers(
+	ctx context.Context,
+	params InternalTransferListParams,
+) (*Page[InternalTransfer], *Response, error) {
+	page, response, err := doList[InternalTransfer](c, ctx, "/internal-transfers", params.values())
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &page, &response, nil
+}
+
+// UpdateInternalTransfer updates mutable fields on a transfer.
+func (c *Client) UpdateInternalTransfer(
 	ctx context.Context,
 	id string,
 	input UpdateInternalTransferInput,
-) (InternalTransfer, Response, error) {
+) (*InternalTransfer, *Response, error) {
 	if id == "" {
-		return InternalTransfer{}, Response{}, newValidationError("ID", "must be non-empty")
+		return nil, nil, newValidationError("ID", "must be non-empty")
 	}
-	var result InternalTransfer
-	response, err := s.client.do(ctx, operation{
-		method: "PATCH",
+	if !input.Description.IsSet() && !input.Metadata.IsSet() {
+		return nil, nil, newValidationError("Input", "must contain at least one field")
+	}
+	var transfer InternalTransfer
+	response, err := c.do(ctx, operation{
+		method: http.MethodPatch,
 		path:   "/internal-transfers/" + url.PathEscape(id),
 		input:  input,
-		output: &result,
+		output: &transfer,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &transfer, &response, nil
 }
 
-func (s *InternalTransferService) Delete(ctx context.Context, id string) (Response, error) {
+// DeleteInternalTransfer deletes a transfer in a deletable state.
+func (c *Client) DeleteInternalTransfer(ctx context.Context, id string) (*Response, error) {
 	if id == "" {
-		return Response{}, newValidationError("ID", "must be non-empty")
+		return nil, newValidationError("ID", "must be non-empty")
 	}
-	return s.client.do(ctx, operation{
-		method: "DELETE",
-		path:   "/internal-transfers/" + url.PathEscape(id),
+	response, err := c.do(ctx, operation{
+		method:  http.MethodDelete,
+		path:    "/internal-transfers/" + url.PathEscape(id),
+		emptyOK: true,
 	})
+	return responseOrNil(response), err
 }
 
-func (q InternalTransferListQuery) values() url.Values {
+func (p InternalTransferListParams) values() url.Values {
 	values := url.Values{}
-	if q.Limit != 0 {
-		values.Set("limit", strconv.Itoa(q.Limit))
+	if p.Limit != 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
 	}
-	if q.After != "" {
-		values.Set("after", q.After)
+	if p.After != "" {
+		values.Set("after", p.After)
 	}
-	if q.Status != "" {
-		values.Set("status", string(q.Status))
+	if p.Status != "" {
+		values.Set("status", string(p.Status))
 	}
-	if q.SourceFinancialAccountID != "" {
-		values.Set("sourceFinancialAccountId", q.SourceFinancialAccountID)
+	if p.SourceFinancialAccountID != "" {
+		values.Set("sourceFinancialAccountId", p.SourceFinancialAccountID)
 	}
-	if q.DestinationFinancialAccountID != "" {
-		values.Set("destinationFinancialAccountId", q.DestinationFinancialAccountID)
+	if p.DestinationFinancialAccountID != "" {
+		values.Set("destinationFinancialAccountId", p.DestinationFinancialAccountID)
 	}
-	if q.FinancialTransactionReference != "" {
-		values.Set("financialTransactionReference", q.FinancialTransactionReference)
+	if p.FinancialTransactionReference != "" {
+		values.Set("financialTransactionReference", p.FinancialTransactionReference)
 	}
 	return values
 }
