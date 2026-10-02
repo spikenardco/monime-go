@@ -2,8 +2,10 @@ package monime
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // PaymentStatus is the processing state of a payment.
@@ -27,18 +29,20 @@ type Payment struct {
 	FinancialAccountID            *string         `json:"financialAccountId,omitempty"`
 	FinancialTransactionReference *string         `json:"financialTransactionReference,omitempty"`
 	Fees                          []Fee           `json:"fees,omitempty"`
-	CreateTime                    string          `json:"createTime"`
-	UpdateTime                    *string         `json:"updateTime,omitempty"`
+	CreateTime                    time.Time       `json:"createTime"`
+	UpdateTime                    *time.Time      `json:"updateTime,omitempty"`
 	OwnershipGraph                *OwnershipGraph `json:"ownershipGraph,omitempty"`
 	Metadata                      Metadata        `json:"metadata,omitempty"`
 }
 
+// UpdatePaymentInput contains mutable payment fields.
 type UpdatePaymentInput struct {
 	Name     Field[string]   `json:"name,omitzero"`
 	Metadata Field[Metadata] `json:"metadata,omitzero"`
 }
 
-type PaymentListQuery struct {
+// PaymentListParams filters a payment list request.
+type PaymentListParams struct {
 	Limit                         int
 	After                         string
 	OrderNumber                   string
@@ -46,55 +50,76 @@ type PaymentListQuery struct {
 	FinancialTransactionReference string
 }
 
-type PaymentService struct{ client *Client }
-
-func (s *PaymentService) Get(ctx context.Context, id string) (Payment, Response, error) {
+// GetPayment returns a payment by ID.
+func (c *Client) GetPayment(ctx context.Context, id string) (*Payment, *Response, error) {
 	if id == "" {
-		return Payment{}, Response{}, newValidationError("ID", "must be non-empty")
+		return nil, nil, newValidationError("ID", "must be non-empty")
 	}
-	var result Payment
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
+	var payment Payment
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
 		path:   "/payments/" + url.PathEscape(id),
-		output: &result,
+		output: &payment,
 	})
-	return result, response, err
-}
-
-func (s *PaymentService) List(ctx context.Context, query PaymentListQuery) (Page[Payment], Response, error) {
-	return doList[Payment](s.client, ctx, "/payments", query.values())
-}
-
-func (s *PaymentService) Update(ctx context.Context, id string, input UpdatePaymentInput) (Payment, Response, error) {
-	if id == "" {
-		return Payment{}, Response{}, newValidationError("ID", "must be non-empty")
+	if err != nil {
+		return nil, responseOrNil(response), err
 	}
-	var result Payment
-	response, err := s.client.do(ctx, operation{
-		method: "PATCH",
+	return &payment, &response, nil
+}
+
+// ListPayments returns payments matching params.
+func (c *Client) ListPayments(
+	ctx context.Context,
+	params PaymentListParams,
+) (*Page[Payment], *Response, error) {
+	page, response, err := doList[Payment](c, ctx, "/payments", params.values())
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &page, &response, nil
+}
+
+// UpdatePayment updates mutable fields on a payment.
+func (c *Client) UpdatePayment(
+	ctx context.Context,
+	id string,
+	input UpdatePaymentInput,
+) (*Payment, *Response, error) {
+	if id == "" {
+		return nil, nil, newValidationError("ID", "must be non-empty")
+	}
+	if !input.Name.IsSet() && !input.Metadata.IsSet() {
+		return nil, nil, newValidationError("Input", "must contain at least one field")
+	}
+	var payment Payment
+	response, err := c.do(ctx, operation{
+		method: http.MethodPatch,
 		path:   "/payments/" + url.PathEscape(id),
 		input:  input,
-		output: &result,
+		output: &payment,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &payment, &response, nil
 }
 
-func (q PaymentListQuery) values() url.Values {
+func (p PaymentListParams) values() url.Values {
 	values := url.Values{}
-	if q.Limit != 0 {
-		values.Set("limit", strconv.Itoa(q.Limit))
+	if p.Limit != 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
 	}
-	if q.After != "" {
-		values.Set("after", q.After)
+	if p.After != "" {
+		values.Set("after", p.After)
 	}
-	if q.OrderNumber != "" {
-		values.Set("orderNumber", q.OrderNumber)
+	if p.OrderNumber != "" {
+		values.Set("orderNumber", p.OrderNumber)
 	}
-	if q.FinancialAccountID != "" {
-		values.Set("financialAccountId", q.FinancialAccountID)
+	if p.FinancialAccountID != "" {
+		values.Set("financialAccountId", p.FinancialAccountID)
 	}
-	if q.FinancialTransactionReference != "" {
-		values.Set("financialTransactionReference", q.FinancialTransactionReference)
+	if p.FinancialTransactionReference != "" {
+		values.Set("financialTransactionReference", p.FinancialTransactionReference)
 	}
 	return values
 }

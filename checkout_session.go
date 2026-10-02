@@ -2,8 +2,10 @@ package monime
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // CheckoutSessionStatus is the lifecycle state of a checkout session.
@@ -21,134 +23,170 @@ type CheckoutSession struct {
 	ID                 string                `json:"id"`
 	Status             CheckoutSessionStatus `json:"status"`
 	Name               string                `json:"name"`
-	OrderNumber        string                `json:"orderNumber"`
+	OrderNumber        *string               `json:"orderNumber,omitempty"`
 	Reference          *string               `json:"reference,omitempty"`
 	Description        *string               `json:"description,omitempty"`
 	RedirectURL        string                `json:"redirectUrl"`
-	CancelURL          *string               `json:"cancelUrl,omitempty"`
-	SuccessURL         *string               `json:"successUrl,omitempty"`
+	CancelURL          string                `json:"cancelUrl"`
+	SuccessURL         string                `json:"successUrl"`
 	LineItems          CheckoutLineItems     `json:"lineItems"`
 	FinancialAccountID *string               `json:"financialAccountId,omitempty"`
 	BrandingOptions    *BrandingOptions      `json:"brandingOptions,omitempty"`
-	ExpireTime         string                `json:"expireTime"`
-	CreateTime         string                `json:"createTime"`
+	ExpireTime         time.Time             `json:"expireTime"`
+	CreateTime         time.Time             `json:"createTime"`
 	OwnershipGraph     *OwnershipGraph       `json:"ownershipGraph,omitempty"`
 	Metadata           Metadata              `json:"metadata,omitempty"`
 }
 
+// CheckoutLineItems contains items displayed by a checkout session.
 type CheckoutLineItems struct {
 	Data []CheckoutLineItem `json:"data"`
 }
 
+// CheckoutLineItem is an item returned for a checkout session.
 type CheckoutLineItem struct {
+	Type        string   `json:"type"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Price       Amount   `json:"price"`
+	Quantity    int64    `json:"quantity"`
+	Reference   *string  `json:"reference,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	Images      []string `json:"images,omitempty"`
+}
+
+// CreateCheckoutLineItem is an item accepted when creating a checkout session.
+type CreateCheckoutLineItem struct {
 	Type        string   `json:"type,omitempty"`
 	Name        string   `json:"name"`
 	Price       Amount   `json:"price"`
 	Quantity    *int64   `json:"quantity,omitempty"`
-	Reference   string   `json:"reference,omitempty"`
-	Description string   `json:"description,omitempty"`
+	Reference   *string  `json:"reference,omitempty"`
+	Description *string  `json:"description,omitempty"`
 	Images      []string `json:"images,omitempty"`
 }
 
+// BrandingOptions controls checkout presentation.
 type BrandingOptions struct {
 	PrimaryColor *string `json:"primaryColor,omitempty"`
 }
 
-type PaymentMethodOptions struct {
+// CardPaymentOptions controls card availability.
+type CardPaymentOptions struct {
+	Disable *bool `json:"disable,omitempty"`
+}
+
+// ProviderPaymentOptions controls a provider-based payment method.
+type ProviderPaymentOptions struct {
 	Disable           *bool    `json:"disable,omitempty"`
 	EnabledProviders  []string `json:"enabledProviders,omitempty"`
 	DisabledProviders []string `json:"disabledProviders,omitempty"`
 }
 
+// CheckoutPaymentOptions controls payment methods shown at checkout.
 type CheckoutPaymentOptions struct {
-	Card   *PaymentMethodOptions `json:"card,omitempty"`
-	Bank   *PaymentMethodOptions `json:"bank,omitempty"`
-	Momo   *PaymentMethodOptions `json:"momo,omitempty"`
-	Wallet *PaymentMethodOptions `json:"wallet,omitempty"`
+	Card   *CardPaymentOptions     `json:"card,omitempty"`
+	Bank   *ProviderPaymentOptions `json:"bank,omitempty"`
+	Momo   *ProviderPaymentOptions `json:"momo,omitempty"`
+	Wallet *ProviderPaymentOptions `json:"wallet,omitempty"`
 }
 
+// CreateCheckoutSessionInput contains fields accepted when creating a checkout session.
 type CreateCheckoutSessionInput struct {
-	Name               string                  `json:"name"`
-	LineItems          []CheckoutLineItem      `json:"lineItems"`
-	Description        string                  `json:"description,omitempty"`
-	CancelURL          string                  `json:"cancelUrl,omitempty"`
-	SuccessURL         string                  `json:"successUrl,omitempty"`
-	CallbackState      string                  `json:"callbackState,omitempty"`
-	Reference          string                  `json:"reference,omitempty"`
-	FinancialAccountID string                  `json:"financialAccountId,omitempty"`
-	PaymentOptions     *CheckoutPaymentOptions `json:"paymentOptions,omitempty"`
-	BrandingOptions    *BrandingOptions        `json:"brandingOptions,omitempty"`
-	Metadata           Metadata                `json:"metadata,omitempty"`
+	Name               string                   `json:"name"`
+	LineItems          []CreateCheckoutLineItem `json:"lineItems"`
+	Description        string                   `json:"description,omitempty"`
+	CancelURL          string                   `json:"cancelUrl,omitempty"`
+	SuccessURL         string                   `json:"successUrl,omitempty"`
+	CallbackState      string                   `json:"callbackState,omitempty"`
+	Reference          string                   `json:"reference,omitempty"`
+	FinancialAccountID string                   `json:"financialAccountId,omitempty"`
+	PaymentOptions     *CheckoutPaymentOptions  `json:"paymentOptions,omitempty"`
+	BrandingOptions    *BrandingOptions         `json:"brandingOptions,omitempty"`
+	Metadata           Metadata                 `json:"metadata,omitempty"`
 }
 
-type CheckoutSessionListQuery struct {
-	Limit  int
-	After  string
-	Status CheckoutSessionStatus
+// CheckoutSessionListParams controls checkout-session pagination.
+type CheckoutSessionListParams struct {
+	Limit int
+	After string
 }
 
-type CheckoutSessionService struct{ client *Client }
-
-func (s *CheckoutSessionService) Create(
+// CreateCheckoutSession creates a hosted checkout session.
+func (c *Client) CreateCheckoutSession(
 	ctx context.Context,
+	idempotencyKey string,
 	input CreateCheckoutSessionInput,
-) (CheckoutSession, Response, error) {
+) (*CheckoutSession, *Response, error) {
 	if input.Name == "" {
-		return CheckoutSession{}, Response{}, newValidationError("Name", "must be non-empty")
+		return nil, nil, newValidationError("Name", "must be non-empty")
 	}
 	if len(input.LineItems) == 0 {
-		return CheckoutSession{}, Response{}, newValidationError("LineItems", "must contain at least one item")
+		return nil, nil, newValidationError("LineItems", "must contain at least one item")
 	}
-	var result CheckoutSession
-	response, err := s.client.do(ctx, operation{
-		method: "POST",
-		path:   "/checkout-sessions",
-		input:  input,
-		output: &result,
+	var session CheckoutSession
+	response, err := c.do(ctx, operation{
+		method:         http.MethodPost,
+		path:           "/checkout-sessions",
+		input:          input,
+		output:         &session,
+		idempotencyKey: idempotencyKey,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &session, &response, nil
 }
 
-func (s *CheckoutSessionService) Get(ctx context.Context, id string) (CheckoutSession, Response, error) {
+// GetCheckoutSession returns a checkout session by ID.
+func (c *Client) GetCheckoutSession(ctx context.Context, id string) (*CheckoutSession, *Response, error) {
 	if id == "" {
-		return CheckoutSession{}, Response{}, newValidationError("ID", "must be non-empty")
+		return nil, nil, newValidationError("ID", "must be non-empty")
 	}
-	var result CheckoutSession
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
+	var session CheckoutSession
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
 		path:   "/checkout-sessions/" + url.PathEscape(id),
-		output: &result,
+		output: &session,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &session, &response, nil
 }
 
-func (s *CheckoutSessionService) List(
+// ListCheckoutSessions returns checkout sessions.
+func (c *Client) ListCheckoutSessions(
 	ctx context.Context,
-	query CheckoutSessionListQuery,
-) (Page[CheckoutSession], Response, error) {
-	return doList[CheckoutSession](s.client, ctx, "/checkout-sessions", query.values())
+	params CheckoutSessionListParams,
+) (*Page[CheckoutSession], *Response, error) {
+	page, response, err := doList[CheckoutSession](c, ctx, "/checkout-sessions", params.values())
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &page, &response, nil
 }
 
-func (s *CheckoutSessionService) Delete(ctx context.Context, id string) (Response, error) {
+// DeleteCheckoutSession deletes a checkout session that has not started.
+func (c *Client) DeleteCheckoutSession(ctx context.Context, id string) (*Response, error) {
 	if id == "" {
-		return Response{}, newValidationError("ID", "must be non-empty")
+		return nil, newValidationError("ID", "must be non-empty")
 	}
-	return s.client.do(ctx, operation{
-		method: "DELETE",
-		path:   "/checkout-sessions/" + url.PathEscape(id),
+	response, err := c.do(ctx, operation{
+		method:  http.MethodDelete,
+		path:    "/checkout-sessions/" + url.PathEscape(id),
+		emptyOK: true,
 	})
+	return responseOrNil(response), err
 }
 
-func (q CheckoutSessionListQuery) values() url.Values {
+func (p CheckoutSessionListParams) values() url.Values {
 	values := url.Values{}
-	if q.Limit != 0 {
-		values.Set("limit", strconv.Itoa(q.Limit))
+	if p.Limit != 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
 	}
-	if q.After != "" {
-		values.Set("after", q.After)
-	}
-	if q.Status != "" {
-		values.Set("status", string(q.Status))
+	if p.After != "" {
+		values.Set("after", p.After)
 	}
 	return values
 }

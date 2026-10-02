@@ -2,8 +2,10 @@ package monime
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // PaymentCodeMode is the usage mode of a payment code.
@@ -33,7 +35,7 @@ type PaymentCode struct {
 	Name                   *string                 `json:"name,omitempty"`
 	Amount                 *Amount                 `json:"amount,omitempty"`
 	Enable                 bool                    `json:"enable"`
-	ExpireTime             string                  `json:"expireTime"`
+	ExpireTime             time.Time               `json:"expireTime"`
 	Customer               *PaymentCodeCustomer    `json:"customer,omitempty"`
 	USSDCode               string                  `json:"ussdCode"`
 	Reference              *string                 `json:"reference,omitempty"`
@@ -42,21 +44,24 @@ type PaymentCode struct {
 	RecurrentPaymentTarget *RecurrentPaymentTarget `json:"recurrentPaymentTarget,omitempty"`
 	FinancialAccountID     *string                 `json:"financialAccountId,omitempty"`
 	ProcessedPaymentData   *ProcessedPaymentData   `json:"processedPaymentData,omitempty"`
-	CreateTime             string                  `json:"createTime"`
-	UpdateTime             *string                 `json:"updateTime,omitempty"`
+	CreateTime             time.Time               `json:"createTime"`
+	UpdateTime             *time.Time              `json:"updateTime,omitempty"`
 	OwnershipGraph         *OwnershipGraph         `json:"ownershipGraph,omitempty"`
 	Metadata               Metadata                `json:"metadata,omitempty"`
 }
 
+// PaymentCodeCustomer identifies the customer shown in payment prompts.
 type PaymentCodeCustomer struct {
 	Name *string `json:"name,omitempty"`
 }
 
+// RecurrentPaymentTarget describes when a recurrent code is complete.
 type RecurrentPaymentTarget struct {
 	ExpectedPaymentCount *int64  `json:"expectedPaymentCount,omitempty"`
 	ExpectedPaymentTotal *Amount `json:"expectedPaymentTotal,omitempty"`
 }
 
+// ProcessedPaymentData describes a payment processed from a payment code.
 type ProcessedPaymentData struct {
 	Amount                        Amount      `json:"amount"`
 	OrderID                       string      `json:"orderId"`
@@ -67,12 +72,14 @@ type ProcessedPaymentData struct {
 	Metadata                      Metadata    `json:"metadata,omitempty"`
 }
 
+// ChannelData identifies the provider transaction behind a processed payment.
 type ChannelData struct {
 	ProviderID string `json:"providerId"`
 	AccountID  string `json:"accountId"`
 	Reference  string `json:"reference"`
 }
 
+// CreatePaymentCodeInput contains fields accepted when creating a payment code.
 type CreatePaymentCodeInput struct {
 	Mode                   PaymentCodeMode         `json:"mode,omitempty"`
 	Name                   string                  `json:"name"`
@@ -88,6 +95,7 @@ type CreatePaymentCodeInput struct {
 	Metadata               Metadata                `json:"metadata,omitempty"`
 }
 
+// UpdatePaymentCodeInput contains mutable payment-code fields.
 type UpdatePaymentCodeInput struct {
 	Name                   Field[string]                 `json:"name,omitzero"`
 	Amount                 Field[Amount]                 `json:"amount,omitzero"`
@@ -102,7 +110,8 @@ type UpdatePaymentCodeInput struct {
 	Metadata               Field[Metadata]               `json:"metadata,omitzero"`
 }
 
-type PaymentCodeListQuery struct {
+// PaymentCodeListParams filters a payment-code list request.
+type PaymentCodeListParams struct {
 	Limit    int
 	After    string
 	Mode     PaymentCodeMode
@@ -110,92 +119,122 @@ type PaymentCodeListQuery struct {
 	Status   PaymentCodeStatus
 }
 
-type PaymentCodeService struct{ client *Client }
-
-func (s *PaymentCodeService) Create(ctx context.Context, input CreatePaymentCodeInput) (PaymentCode, Response, error) {
+// CreatePaymentCode creates a payment code.
+func (c *Client) CreatePaymentCode(
+	ctx context.Context,
+	idempotencyKey string,
+	input CreatePaymentCodeInput,
+) (*PaymentCode, *Response, error) {
 	if input.Name == "" {
-		return PaymentCode{}, Response{}, newValidationError("Name", "must be non-empty")
+		return nil, nil, newValidationError("Name", "must be non-empty")
 	}
 	if input.Mode == PaymentCodeModeOneTime && input.RecurrentPaymentTarget != nil {
-		return PaymentCode{}, Response{}, newValidationError("RecurrentPaymentTarget", "must be omitted for one-time codes")
+		return nil, nil, newValidationError("RecurrentPaymentTarget", "must be omitted for one-time codes")
 	}
-	if input.Mode == PaymentCodeModeRecurrent && input.RecurrentPaymentTarget == nil {
-		return PaymentCode{}, Response{}, newValidationError("RecurrentPaymentTarget", "is required for recurrent codes")
-	}
-	var result PaymentCode
-	response, err := s.client.do(ctx, operation{
-		method: "POST",
-		path:   "/payment-codes",
-		input:  input,
-		output: &result,
+	var code PaymentCode
+	response, err := c.do(ctx, operation{
+		method:         http.MethodPost,
+		path:           "/payment-codes",
+		input:          input,
+		output:         &code,
+		idempotencyKey: idempotencyKey,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &code, &response, nil
 }
 
-func (s *PaymentCodeService) Get(ctx context.Context, id string) (PaymentCode, Response, error) {
+// GetPaymentCode returns a payment code by ID.
+func (c *Client) GetPaymentCode(ctx context.Context, id string) (*PaymentCode, *Response, error) {
 	if id == "" {
-		return PaymentCode{}, Response{}, newValidationError("ID", "must be non-empty")
+		return nil, nil, newValidationError("ID", "must be non-empty")
 	}
-	var result PaymentCode
-	response, err := s.client.do(ctx, operation{
-		method: "GET",
+	var code PaymentCode
+	response, err := c.do(ctx, operation{
+		method: http.MethodGet,
 		path:   "/payment-codes/" + url.PathEscape(id),
-		output: &result,
+		output: &code,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &code, &response, nil
 }
 
-func (s *PaymentCodeService) List(
+// ListPaymentCodes returns payment codes matching params.
+func (c *Client) ListPaymentCodes(
 	ctx context.Context,
-	query PaymentCodeListQuery,
-) (Page[PaymentCode], Response, error) {
-	return doList[PaymentCode](s.client, ctx, "/payment-codes", query.values())
+	params PaymentCodeListParams,
+) (*Page[PaymentCode], *Response, error) {
+	page, response, err := doList[PaymentCode](c, ctx, "/payment-codes", params.values())
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &page, &response, nil
 }
 
-func (s *PaymentCodeService) Update(
+// UpdatePaymentCode updates mutable fields on a payment code.
+func (c *Client) UpdatePaymentCode(
 	ctx context.Context,
 	id string,
 	input UpdatePaymentCodeInput,
-) (PaymentCode, Response, error) {
+) (*PaymentCode, *Response, error) {
 	if id == "" {
-		return PaymentCode{}, Response{}, newValidationError("ID", "must be non-empty")
+		return nil, nil, newValidationError("ID", "must be non-empty")
 	}
-	var result PaymentCode
-	response, err := s.client.do(ctx, operation{
-		method: "PATCH",
+	if !paymentCodeUpdateSet(input) {
+		return nil, nil, newValidationError("Input", "must contain at least one field")
+	}
+	var code PaymentCode
+	response, err := c.do(ctx, operation{
+		method: http.MethodPatch,
 		path:   "/payment-codes/" + url.PathEscape(id),
 		input:  input,
-		output: &result,
+		output: &code,
 	})
-	return result, response, err
+	if err != nil {
+		return nil, responseOrNil(response), err
+	}
+	return &code, &response, nil
 }
 
-func (s *PaymentCodeService) Delete(ctx context.Context, id string) (Response, error) {
+// DeletePaymentCode deletes an unused payment code.
+func (c *Client) DeletePaymentCode(ctx context.Context, id string) (*Response, error) {
 	if id == "" {
-		return Response{}, newValidationError("ID", "must be non-empty")
+		return nil, newValidationError("ID", "must be non-empty")
 	}
-	return s.client.do(ctx, operation{
-		method: "DELETE",
-		path:   "/payment-codes/" + url.PathEscape(id),
+	response, err := c.do(ctx, operation{
+		method:  http.MethodDelete,
+		path:    "/payment-codes/" + url.PathEscape(id),
+		emptyOK: true,
 	})
+	return responseOrNil(response), err
 }
 
-func (q PaymentCodeListQuery) values() url.Values {
+func paymentCodeUpdateSet(input UpdatePaymentCodeInput) bool {
+	return input.Name.IsSet() || input.Amount.IsSet() || input.Duration.IsSet() || input.Enable.IsSet() ||
+		input.Customer.IsSet() || input.Reference.IsSet() || input.AuthorizedProviders.IsSet() ||
+		input.AuthorizedPhoneNumber.IsSet() || input.RecurrentPaymentTarget.IsSet() ||
+		input.FinancialAccountID.IsSet() || input.Metadata.IsSet()
+}
+
+func (p PaymentCodeListParams) values() url.Values {
 	values := url.Values{}
-	if q.Limit != 0 {
-		values.Set("limit", strconv.Itoa(q.Limit))
+	if p.Limit != 0 {
+		values.Set("limit", strconv.Itoa(p.Limit))
 	}
-	if q.After != "" {
-		values.Set("after", q.After)
+	if p.After != "" {
+		values.Set("after", p.After)
 	}
-	if q.Mode != "" {
-		values.Set("mode", string(q.Mode))
+	if p.Mode != "" {
+		values.Set("mode", string(p.Mode))
 	}
-	if q.USSDCode != "" {
-		values.Set("ussdCode", q.USSDCode)
+	if p.USSDCode != "" {
+		values.Set("ussd_code", p.USSDCode)
 	}
-	if q.Status != "" {
-		values.Set("status", string(q.Status))
+	if p.Status != "" {
+		values.Set("status", string(p.Status))
 	}
 	return values
 }
